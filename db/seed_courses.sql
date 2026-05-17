@@ -1,14 +1,26 @@
 -- ============================================================
--- Seed: 5 RTJ Trail courses, Purple tees, par + stroke index
--- Run this AFTER the main SETUP.md schema block.
+-- Seed: 5 RTJ Trail courses (Purple tees) + rounds setup.
+--
+-- Run AFTER db/schema.sql. Idempotent: re-run anytime to reset
+-- rounds + holes back to this baseline.
+--
+-- Replace this entire file with your own rounds and courses
+-- when forking. The IDs and names here should match the ROUNDS
+-- array in src/tournament.config.js.
 -- ============================================================
 
--- Update round names with the course identity (display in app)
-update rounds set name = 'R1 · Oxmoor Valley, Ridge' where id = 1;
-update rounds set name = 'R2 · Ross Bridge' where id = 2;
-update rounds set name = 'R3 · Grand National, Lake' where id = 3;
-update rounds set name = 'R4 · Grand National, Links' where id = 4;
-update rounds set name = 'R5 · Capitol Hill, Senator' where id = 5;
+-- Rounds (idempotent: insert or update name+format).
+-- The `format` value is the scoring engine key — must be one of
+-- 'individual_stroke', 'best_ball', 'scramble', 'championship'.
+insert into rounds (id, name, format) values
+  (1, 'R1 · Oxmoor Valley, Ridge',     'individual_stroke'),
+  (2, 'R2 · Ross Bridge',              'best_ball'),
+  (3, 'R3 · Grand National, Lake',     'individual_stroke'),
+  (4, 'R4 · Grand National, Links',    'scramble'),
+  (5, 'R5 · Capitol Hill, Senator',    'championship')
+on conflict (id) do update
+  set name   = excluded.name,
+      format = excluded.format;
 
 -- Wipe any existing hole data for these rounds before re-seeding (idempotent)
 delete from holes where round_id in (1, 2, 3, 4, 5);

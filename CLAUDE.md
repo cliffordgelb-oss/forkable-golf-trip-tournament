@@ -58,10 +58,16 @@ All in `src/App.jsx`:
 - `computeMatchPlayState` — live match-play +1-per-hole-won state
 - `computeRoundPoints(roundId, scores, strokes, holes, formatKey, cumulativePreR5)` — final round-point allocation; this is the function that varies most by format
 
+## DB schema
+
+`db/schema.sql` is the canonical end-state schema. Fresh installs run `schema.sql` then `seed_courses.sql`; the `migration_*.sql` files are historical only. When changing how data is stored, edit `schema.sql` (not the migrations) and add a new migration for users upgrading from an existing install. The push notification triggers (birdie/eagle on score insert, message fan-out) live in `schema.sql` — not in App.jsx — so DB-side scoring changes may need trigger updates too.
+
+Players table is **a duplicate of the PLAYERS array in tournament.config.js** — when a forker changes players, they must update both. The README has a copy-paste seed SQL snippet for this.
+
 ## Known gaps
 
-- **No base DB schema file.** `db/` has only migrations. To set up Supabase you currently need to reconstruct the base schema from the queries in `src/App.jsx`. A `db/schema.sql` is the next planned addition — if the user asks for "setup", flag this gap immediately.
-- **Hardcoded `[1,2,3,4,5]` references are removed**, but some narrative copy ("Five rounds...") still hardcodes round count. See line ~2028.
+- **Narrative copy hardcodes round count.** Line ~2028 of App.jsx ("Five rounds. Points across R1-R4...") and the points-summary table at ~2049-2053 still assume 5 rounds. Out of scope for the config refactor; flag if a forker has a different round count.
+- **Admin player is hardcoded.** `const isAdmin = user.id === 'cliff';` at App.jsx ~647. A forker's admin button won't render unless one of their players has `id: 'cliff'`. Move to tournament.config.js as `ADMIN_PLAYER_ID` when convenient.
 - **Lint baseline is dirty** — the original code has ~12 pre-existing lint errors (unused vars, hook deps). Don't try to fix them as part of unrelated changes; flag them in a separate cleanup.
 
 ## Commands

@@ -17,10 +17,6 @@ A live PGA-style leaderboard, push notifications, and a trash-talk feed come inc
 - Supabase (Postgres + Edge Functions)
 - Web Push for notifications
 
-## Status
-
-This is an early public release. The frontend and migrations are here, but a **base database schema file is still missing** — see [Known gaps](#known-gaps) below. Until that lands, expect to do some manual SQL work to stand up your own instance.
-
 ## Quick start
 
 ```bash
@@ -42,11 +38,20 @@ VITE_VAPID_PUBLIC_KEY=your-vapid-public-key
 ### Supabase setup
 
 1. Create a project at [supabase.com](https://supabase.com).
-2. Run the base schema (see [Known gaps](#known-gaps)).
-3. Run each migration in `db/` in filename order. **Before running `migration_push.sql`, replace `YOUR_PROJECT_REF`** with your Supabase project ref.
-4. Run `db/seed_courses.sql` (or replace with your own course data).
-5. Update `supabase/config.toml` — replace `your-project-ref` with your real project ref.
-6. Deploy the edge function: `supabase functions deploy send-push`
+2. Enable the `pg_net` extension: **Database → Extensions → pg_net → Enable**.
+3. In the SQL editor, edit [`db/schema.sql`](db/schema.sql) to replace `YOUR_PROJECT_REF` (one occurrence, inside `fn_dispatch_notification`) with your Supabase project ref, then run the whole file.
+4. Run [`db/seed_courses.sql`](db/seed_courses.sql) — seeds rounds 1-5 + their hole data. Edit this file before running if you have your own courses.
+5. Manually seed the `players` table to match `PLAYERS` in [`src/tournament.config.js`](src/tournament.config.js):
+   ```sql
+   insert into players (id, name, emoji, initials) values
+     ('dustin', 'Dustin', '🦅', 'DC'),
+     ('cliff',  'Cliff',  '🐅', 'CG');
+     -- ...one row per player...
+   ```
+6. Update [`supabase/config.toml`](supabase/config.toml) — replace `your-project-ref` with your real ref.
+7. Deploy the edge function: `supabase functions deploy send-push`.
+
+The `db/migration_*.sql` files describe how the original schema evolved and are kept for reference. **You don't need to run them on a fresh install** — `db/schema.sql` is already the post-migration state.
 
 ### Web Push (VAPID) setup
 
@@ -73,10 +78,6 @@ Most customization lives in one file:
 - **Branding (app title, PWA manifest, push notification text):** see [`CLAUDE.md`](CLAUDE.md) for the full list
 
 If you use [Claude Code](https://claude.com/claude-code), [`CLAUDE.md`](CLAUDE.md) tells the agent exactly where the customization seams are. Just open the repo in Claude Code and ask it to "swap in our players and rounds" — it will know what to do.
-
-## Known gaps
-
-- **No base schema file** — the migrations under `db/` assume a base schema exists, but it isn't checked in. To stand up the app today, you need to reconstruct the schema from the queries in `src/App.jsx` and `supabase/functions/send-push/index.ts`. A bundled `db/schema.sql` is the next planned addition.
 
 Issues and PRs welcome.
 
