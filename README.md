@@ -66,16 +66,17 @@ And add the public key to your `.env` as `VITE_VAPID_PUBLIC_KEY`.
 
 ## Customizing for your trip
 
-In the current version, the players, rounds, and courses are hardcoded. A guided customization flow (with a `CLAUDE.md` so [Claude Code](https://claude.com/claude-code) can do the edits for you) is the next step on the roadmap. For now, the seams are:
+Most customization lives in one file:
 
-- **Players:** `src/App.jsx` → `PLAYER_LIST` constant
-- **Rounds, courses, formats, scoring descriptions:** `src/App.jsx` → `ROUND_INFO` constant
-- **Course par + stroke index:** `db/seed_courses.sql`
+- **Players and rounds:** [`src/tournament.config.js`](src/tournament.config.js) — edit `PLAYERS` and `ROUNDS`
+- **Course par + stroke index:** [`db/seed_courses.sql`](db/seed_courses.sql)
+- **Branding (app title, PWA manifest, push notification text):** see [`CLAUDE.md`](CLAUDE.md) for the full list
+
+If you use [Claude Code](https://claude.com/claude-code), [`CLAUDE.md`](CLAUDE.md) tells the agent exactly where the customization seams are. Just open the repo in Claude Code and ask it to "swap in our players and rounds" — it will know what to do.
 
 ## Known gaps
 
-- **No base schema file** — the migrations under `db/` assume a base schema exists, but it isn't checked in. To stand up the app today, you need to reconstruct the schema from the queries in `src/App.jsx` and `supabase/functions/send-push/index.ts`. A bundled `db/schema.sql` will be added soon.
-- **No `CLAUDE.md` yet** — the customization-via-Claude-Code guide is the next planned addition.
+- **No base schema file** — the migrations under `db/` assume a base schema exists, but it isn't checked in. To stand up the app today, you need to reconstruct the schema from the queries in `src/App.jsx` and `supabase/functions/send-push/index.ts`. A bundled `db/schema.sql` is the next planned addition.
 
 Issues and PRs welcome.
 

@@ -1,0 +1,64 @@
+// ============================================================
+// Tournament configuration
+// ------------------------------------------------------------
+// This is the main file to edit when forking the app for your
+// own trip. Change the players and rounds here. Course par +
+// stroke index live in db/seed_courses.sql.
+//
+// Each player needs:
+//   id       short slug, lowercase, unique (used as DB key)
+//   name     display name
+//   emoji    one emoji that represents them on the leaderboard
+//   initials 2-3 chars shown when space is tight
+//
+// Each round needs:
+//   id     integer, 1..N, must match the rounds table row id
+//   name   shown as the round heading in the app
+//   format display label only — the *scoring engine* reads
+//          the format key from the rounds table (rounds.format
+//          must be one of: 'individual_stroke', 'best_ball',
+//          'scramble', 'championship'). Keep them in sync.
+//   desc   the round's scoring rules, shown on the Formats tab
+// ============================================================
+
+export const PLAYERS = [
+  { id: 'dustin', name: 'Dustin', emoji: '🦅', initials: 'DC' },
+  { id: 'cliff',  name: 'Cliff',  emoji: '🐅', initials: 'CG' },
+  { id: 'andrew', name: 'Andrew', emoji: '🦁', initials: 'AK' },
+  { id: 'kushel', name: 'Kushel', emoji: '🐺', initials: 'DK' },
+  { id: 'robert', name: 'Robert', emoji: '🦊', initials: 'RH' },
+  { id: 'conner', name: 'Conner', emoji: '🐻', initials: 'CW' },
+];
+
+export const ROUNDS = [
+  {
+    id: 1,
+    name: 'R1 · Oxmoor Valley, Ridge',
+    format: 'Individual Stroke Play',
+    desc: 'Each hole in your 3-some: 5/3/1 pts for low/mid/high net (ties split). Sum hole points → 12/8/4 to 1st/2nd/3rd in group (ties split). +1 each to the team that wins the 18-hole best-ball match vs the other 3-some (field handicaps); tied match is a wash.',
+  },
+  {
+    id: 2,
+    name: 'R2 · Ross Bridge',
+    format: '3-Man Best Ball',
+    desc: 'Everyone plays own ball. Each hole, team score = best net score among 3. Winning team: 15 pts each.',
+  },
+  {
+    id: 3,
+    name: 'R3 · Grand National, Lake',
+    format: 'Individual Stroke Play',
+    desc: 'Same as R1. Per hole: 5/3/1 in your 3-some (ties split). 12/8/4 for round placement (ties split). +1 each for winning best-ball match vs the other team; tied match is a wash.',
+  },
+  {
+    id: 4,
+    name: 'R4 · Grand National, Links',
+    format: '3-Man Scramble',
+    desc: 'All tee off, pick best drive, all play from there. Lowest team score wins. 15 pts each.',
+  },
+  {
+    id: 5,
+    name: 'R5 · Capitol Hill, Senator',
+    format: 'Championship Final',
+    desc: 'Individual stroke play. Starting strokes based on overall standings: 1st -3, 2nd -2, 3rd -1, 4th E, 5th +1, 6th +2.',
+  },
+];

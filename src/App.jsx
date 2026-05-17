@@ -4,27 +4,15 @@ import {
   Trophy, MessageCircle, BarChart3, Award, LogOut, Send,
   Flag, Target, Zap, ChevronRight, ChevronDown, ChevronUp, Settings, Bell, BellOff, Lock, Check, X, RefreshCw,
 } from 'lucide-react';
+import { PLAYERS, ROUNDS } from './tournament.config';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY;
 
-const PLAYER_LIST = [
-  { id: 'dustin', name: 'Dustin', emoji: '🦅', initials: 'DC' },
-  { id: 'cliff',  name: 'Cliff',  emoji: '🐅', initials: 'CG' },
-  { id: 'andrew', name: 'Andrew', emoji: '🦁', initials: 'AK' },
-  { id: 'kushel', name: 'Kushel', emoji: '🐺', initials: 'DK' },
-  { id: 'robert', name: 'Robert', emoji: '🦊', initials: 'RH' },
-  { id: 'conner', name: 'Conner', emoji: '🐻', initials: 'CW' },
-];
-
-const ROUND_INFO = {
-  1: { name: 'R1 · Oxmoor Valley, Ridge', format: 'Individual Stroke Play', desc: 'Each hole in your 3-some: 5/3/1 pts for low/mid/high net (ties split). Sum hole points → 12/8/4 to 1st/2nd/3rd in group (ties split). +1 each to the team that wins the 18-hole best-ball match vs the other 3-some (field handicaps); tied match is a wash.' },
-  2: { name: 'R2 · Ross Bridge', format: '3-Man Best Ball', desc: 'Everyone plays own ball. Each hole, team score = best net score among 3. Winning team: 15 pts each.' },
-  3: { name: 'R3 · Grand National, Lake', format: 'Individual Stroke Play', desc: 'Same as R1. Per hole: 5/3/1 in your 3-some (ties split). 12/8/4 for round placement (ties split). +1 each for winning best-ball match vs the other team; tied match is a wash.' },
-  4: { name: 'R4 · Grand National, Links', format: '3-Man Scramble', desc: 'All tee off, pick best drive, all play from there. Lowest team score wins. 15 pts each.' },
-  5: { name: 'R5 · Capitol Hill, Senator', format: 'Championship Final', desc: 'Individual stroke play. Starting strokes based on overall standings: 1st -3, 2nd -2, 3rd -1, 4th E, 5th +1, 6th +2.' },
-};
+const PLAYER_LIST = PLAYERS;
+const ROUND_INFO = Object.fromEntries(ROUNDS.map(r => [r.id, r]));
+const ROUND_IDS = ROUNDS.map(r => r.id);
 
 const urlBase64ToUint8Array = (base64String) => {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -2029,7 +2017,7 @@ function Formats() {
         </div>
       </div>
 
-      {[1,2,3,4,5].map(r => (
+      {ROUND_IDS.map(r => (
         <div key={r} className="card">
           <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexWrap:'wrap', gap:'0.5rem'}}>
             <h3>{ROUND_INFO[r].name}</h3>
