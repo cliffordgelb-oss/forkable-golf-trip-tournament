@@ -1,0 +1,4 @@
+project_id = "your-project-ref"
+
+[functions.send-push]
+verify_jwt = false
