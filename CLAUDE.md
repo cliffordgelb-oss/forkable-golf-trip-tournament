@@ -19,7 +19,7 @@ When someone asks you to "change the players" or "add a round" or "customize for
 
 ### `src/tournament.config.js`
 
-Exports `PLAYERS` and `ROUNDS`. Edit these to match the user's trip. App.jsx imports both and derives its internal lookup maps. Each player needs `{ id, name, emoji, initials }`. Each round needs `{ id, name, format, desc }` — where `format` is a **display label only**, the scoring engine reads the format key from the DB (see "Format keys" below).
+Exports `PLAYERS`, `ROUNDS`, and `ADMIN_PLAYER_ID`. Edit these to match the user's trip. App.jsx imports them and derives its internal lookup maps. Each player needs `{ id, name, emoji, initials }`. Each round needs `{ id, name, format, desc }` — where `format` is a **display label only**, the scoring engine reads the format key from the DB (see "Format keys" below). `ADMIN_PLAYER_ID` must match one of the player ids and gates admin-only UI (course setup, lock-override); set to `null` to disable admin features.
 
 ### `db/seed_courses.sql`
 
@@ -33,8 +33,6 @@ These still hold "Bama"-era strings. When white-labeling, search-and-replace acr
 - `vite.config.js` — PWA manifest (`name`, `short_name`, `description`)
 - `src/sw.js` — push notification default title and tag
 - `package.json` — `name` field
-- `src/App.jsx` line ~2028 — narrative blurb on the Formats tab ("Five rounds. R1-R4 ...")
-- `src/App.jsx` line ~2049-2053 — points summary table (hardcoded per-round max points)
 
 ## Format keys (important)
 
@@ -66,8 +64,6 @@ Players table is **a duplicate of the PLAYERS array in tournament.config.js** �
 
 ## Known gaps
 
-- **Narrative copy hardcodes round count.** Line ~2028 of App.jsx ("Five rounds. Points across R1-R4...") and the points-summary table at ~2049-2053 still assume 5 rounds. Out of scope for the config refactor; flag if a forker has a different round count.
-- **Admin player is hardcoded.** `const isAdmin = user.id === 'cliff';` at App.jsx ~647. A forker's admin button won't render unless one of their players has `id: 'cliff'`. Move to tournament.config.js as `ADMIN_PLAYER_ID` when convenient.
 - **Lint baseline is dirty** — the original code has ~12 pre-existing lint errors (unused vars, hook deps). Don't try to fix them as part of unrelated changes; flag them in a separate cleanup.
 
 ## Commands

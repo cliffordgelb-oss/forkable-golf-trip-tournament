@@ -19,7 +19,13 @@
 //          must be one of: 'individual_stroke', 'best_ball',
 //          'scramble', 'championship'). Keep them in sync.
 //   desc   the round's scoring rules, shown on the Formats tab
+//
+// ADMIN_PLAYER_ID gates admin-only UI (course setup, round
+// lock override, etc.). Must match one of the PLAYERS ids
+// above, or null to disable admin features entirely.
 // ============================================================
+
+export const ADMIN_PLAYER_ID = 'cliff';
 
 export const PLAYERS = [
   { id: 'dustin', name: 'Dustin', emoji: '🦅', initials: 'DC' },

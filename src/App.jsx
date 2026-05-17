@@ -4,7 +4,7 @@ import {
   Trophy, MessageCircle, BarChart3, Award, LogOut, Send,
   Flag, Target, Zap, ChevronRight, ChevronDown, ChevronUp, Settings, Bell, BellOff, Lock, Check, X, RefreshCw,
 } from 'lucide-react';
-import { PLAYERS, ROUNDS } from './tournament.config';
+import { PLAYERS, ROUNDS, ADMIN_PLAYER_ID } from './tournament.config';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -644,7 +644,7 @@ function Main({ supabase, user, onLogout }) {
     return out;
   }, [cumulativePreR5]);
 
-  const isAdmin = user.id === 'cliff';
+  const isAdmin = Boolean(ADMIN_PLAYER_ID) && user.id === ADMIN_PLAYER_ID;
 
   return (
     <div className="app-root">
@@ -2010,13 +2010,6 @@ function Awards({ allScores, allHoles, allStrokes, allRoundPoints, rounds }) {
 function Formats() {
   return (
     <>
-      <div className="card featured">
-        <h2>Tournament Format</h2>
-        <div style={{opacity:0.85, fontSize:'0.95rem'}}>
-          Five rounds. Points across R1-R4 set up starting strokes for the championship.
-        </div>
-      </div>
-
       {ROUND_IDS.map(r => (
         <div key={r} className="card">
           <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexWrap:'wrap', gap:'0.5rem'}}>
@@ -2026,22 +2019,6 @@ function Formats() {
           <p style={{marginTop:'0.5rem', lineHeight:1.55}}>{ROUND_INFO[r].desc}</p>
         </div>
       ))}
-
-      <div className="card">
-        <h3>Points summary</h3>
-        <table className="leaderboard">
-          <thead>
-            <tr><th>Round</th><th>Format</th><th style={{textAlign:'right'}}>Max</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>R1</td><td>Individual stroke</td><td style={{textAlign:'right', fontFamily:'JetBrains Mono, monospace'}}>13</td></tr>
-            <tr><td>R2</td><td>Best ball</td><td style={{textAlign:'right', fontFamily:'JetBrains Mono, monospace'}}>15</td></tr>
-            <tr><td>R3</td><td>Individual stroke</td><td style={{textAlign:'right', fontFamily:'JetBrains Mono, monospace'}}>13</td></tr>
-            <tr><td>R4</td><td>Scramble</td><td style={{textAlign:'right', fontFamily:'JetBrains Mono, monospace'}}>15</td></tr>
-            <tr><td><strong>Total</strong></td><td></td><td style={{textAlign:'right', fontFamily:'JetBrains Mono, monospace', fontWeight:700}}>56</td></tr>
-          </tbody>
-        </table>
-      </div>
     </>
   );
 }
