@@ -26,6 +26,7 @@ Exports `PLAYERS`, `ROUNDS`, `ADMIN_PLAYER_ID`, `CHAMPIONSHIP_ROUND_ID`, and `TO
 - `ADMIN_PLAYER_ID` — gates admin-only UI (course setup, lock override). Must match one of the player ids, or `null` to disable admin entirely.
 - `CHAMPIONSHIP_ROUND_ID` — the round that runs the `championship` format. Cumulative points from every other round feed its starting-stroke ladder. Set to `null` for tournaments without a championship final — the pre-championship leaderboard then spans every round and the "Projected Starting Strokes" card hides.
 - `TOURNAMENT_TITLE` — `{ primary, accent }` rendered as `${primary} · ${accent}` in the header and login screen.
+- `SCORING` — point values per format. `individual_stroke.holePoints` and `.placement` are ranked-prize arrays; ties split prizes (T1 in a 3-some with `[5,3,1]` → both get 4). Increase array length to match larger groups, e.g. `[5,3,1,0]` for 4-somes. `winnerPoints` and `matchPlayBonus` are scalars.
 
 ### `db/seed_courses.sql`
 
@@ -63,15 +64,16 @@ All in `src/App.jsx`:
 - `computeRoundPoints(roundId, scores, strokes, holes, formatKey, cumulativePreR5)` — final round-point allocation; this is the function that varies most by format
 - `startingStrokeLadder(n)` — returns the symmetric-around-zero adjustment array for the championship round. For 6 players: `[-3, -2, -1, 0, 1, 2]`. Drives both the projected card on the leaderboard and the actual championship-round scoring.
 
-### Structural assumptions baked into the engine
+### Group-size flexibility
 
-These are *not* fixed by the config and would require scoring-engine changes if a forker hits them:
+The engine supports **two groups of any equal size** (e.g. two 2-somes / 3-somes / 4-somes). Scoring values come from `SCORING` in tournament.config.js — `holePoints`, `placement`, `winnerPoints`, `matchPlayBonus`. If a group has more players than the prize array has entries, extra ranks get 0 (no NaN). Championship split = `Math.floor(PLAYERS.length / 2)`.
 
-- **Two 3-somes for `individual_stroke`** — the per-hole 5/3/1 and round 12/8/4 awards assume each group has exactly 3 players (see `computeRoundPoints` near the `group.length !== 3` check).
-- **Top 3 / bottom 3 championship split** — the `championship` branch hardcodes `slice(0, 3)` and `slice(3, 6)`.
-- **Specific scoring constants** — 5/3/1 hole points, 12/8/4 placement, 15 pts for best-ball/scramble, +1 match bonus. These *define* each format; changing them means designing a new format.
+### Structural assumptions still baked in
 
-If a forker has a different player count, point them at these spots.
+These would require real engine work to change — flag them if a forker hits the limit:
+
+- **Best-ball and scramble require exactly two groups (A and B).** The DB `group_assignment` CHECK allows `'A' | 'B' | null` and the engine extracts those two arrays explicitly. Tournaments with **3+ groups** (e.g. 12 players in three 4-somes) are not yet supported — they'd need a CHECK widening, a multi-group engine, and a redesign of how three teams compete in best-ball/scramble.
+- **Single-group tournaments** (e.g. 4 players all in one foursome) can only use `individual_stroke` and `championship`. The team formats don't apply.
 
 ## DB schema
 

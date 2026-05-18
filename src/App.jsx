@@ -4,7 +4,7 @@ import {
   Trophy, MessageCircle, BarChart3, Award, LogOut, Send,
   Flag, Target, Zap, ChevronRight, ChevronDown, ChevronUp, Settings, Bell, BellOff, Lock, Check, X, RefreshCw,
 } from 'lucide-react';
-import { PLAYERS, ROUNDS, ADMIN_PLAYER_ID, CHAMPIONSHIP_ROUND_ID, TOURNAMENT_TITLE } from './tournament.config';
+import { PLAYERS, ROUNDS, ADMIN_PLAYER_ID, CHAMPIONSHIP_ROUND_ID, TOURNAMENT_TITLE, SCORING } from './tournament.config';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -145,14 +145,15 @@ const scoreLabel = (gross, par) => {
   return 'double';
 };
 
-// Per-group hole-point standings for R1/R3 (individual stroke). Awards 5/3/1 per hole with
-// tied players averaging adjacent prizes (T1 → 4/4/1, T-last → 5/2/2, all tied → 3/3/3).
-// Stops counting at the first hole not all 3 players have entered.
-// Returns { totals: { [pid]: number }, thruHole: number }.
+// Per-group hole-point standings for individual_stroke rounds.
+// Awards SCORING.individual_stroke.holePoints per hole with tied
+// players averaging adjacent prizes (T1 in a 3-some with [5,3,1]
+// → 4/4/1). Stops counting at the first hole not every player in
+// the group has entered. Returns { totals: { [pid]: number }, thruHole: number }.
 const computeHolePointStandings = (group, sortedHoles, scores, effectiveStrokes) => {
   const totals = Object.fromEntries(group.map(pid => [pid, 0]));
   let thruHole = 0;
-  if (group.length !== 3) return { totals, thruHole };
+  if (group.length < 2) return { totals, thruHole };
   for (const h of sortedHoles) {
     const entries = [];
     let allEntered = true;
@@ -163,7 +164,7 @@ const computeHolePointStandings = (group, sortedHoles, scores, effectiveStrokes)
       entries.push({ pid, value: s.gross - so });
     }
     if (!allEntered) break;
-    const alloc = allocate3WaySplit(entries, [5, 3, 1], true);
+    const alloc = allocate3WaySplit(entries, SCORING.individual_stroke.holePoints, true);
     for (const pid of Object.keys(alloc)) totals[pid] += alloc[pid];
     thruHole = h.hole;
   }
@@ -202,15 +203,22 @@ const computeTeamBestBallMatch = (groupA, groupB, sortedHoles, scores, fieldStro
 // Split a 3-tier prize pool among 3 entries; tied entries average the prizes they collectively cover.
 // entries: [{ pid, value }] length 3. prizes: [first, second, third].
 // betterIsLower=true → smallest value wins (use for net scores); false → largest wins (use for point totals).
+// Distribute `prizes` over `entries` in rank order (lowest value first when
+// betterIsLower is true). Ties split the affected prizes equally. The prize
+// array can be any length; if entries.length > prizes.length, the extra ranks
+// are padded with 0 so larger groups don't crash with NaN.
 const allocate3WaySplit = (entries, prizes, betterIsLower) => {
   const sorted = [...entries].sort((a, b) => betterIsLower ? a.value - b.value : b.value - a.value);
+  const padded = sorted.length > prizes.length
+    ? [...prizes, ...Array(sorted.length - prizes.length).fill(0)]
+    : prizes;
   const out = {};
   let i = 0;
   while (i < sorted.length) {
     let j = i;
     while (j < sorted.length && sorted[j].value === sorted[i].value) j++;
-    const slice = prizes.slice(i, j);
-    const avg = slice.reduce((s, v) => s + v, 0) / slice.length;
+    const slice = padded.slice(i, j);
+    const avg = slice.length ? slice.reduce((s, v) => s + v, 0) / slice.length : 0;
     for (let k = i; k < j; k++) out[sorted[k].pid] = avg;
     i = j;
   }
@@ -230,22 +238,25 @@ const computeRoundPoints = (roundId, scores, strokes, holes, format, cumulativeP
     const aStandings = computeHolePointStandings(groupA, sortedHoles, scores, effectiveStrokes);
     const bStandings = computeHolePointStandings(groupB, sortedHoles, scores, effectiveStrokes);
 
-    // Round placement: 12/8/4 within each group by total hole-points (ties split). Only fires when all 18 played.
+    // Round placement: SCORING.individual_stroke.placement within each group by
+    // total hole-points (ties split). Only fires when all 18 holes played by
+    // every player in the group.
     const awardRoundPlaces = (group, standings) => {
-      if (group.length !== 3 || standings.thruHole !== 18) return;
+      if (group.length < 2 || standings.thruHole !== 18) return;
       const entries = group.map(pid => ({ pid, value: standings.totals[pid] }));
-      const alloc = allocate3WaySplit(entries, [12, 8, 4], false);
+      const alloc = allocate3WaySplit(entries, SCORING.individual_stroke.placement, false);
       for (const pid of Object.keys(alloc)) points[pid] += alloc[pid];
     };
     awardRoundPlaces(groupA, aStandings);
     awardRoundPlaces(groupB, bStandings);
 
-    // Team match-play +1: A vs B best-ball, field-relative handicaps. Tied match = wash.
-    if (aStandings.thruHole === 18 && bStandings.thruHole === 18) {
+    // Team match-play bonus: A vs B best-ball, field-relative handicaps. Tied
+    // match = wash. Only fires when both groups exist and have played 18.
+    if (groupA.length > 0 && groupB.length > 0 && aStandings.thruHole === 18 && bStandings.thruHole === 18) {
       const fieldStrokes = deriveStrokesForFormat(strokes, 'best_ball');
       const match = computeTeamBestBallMatch(groupA, groupB, sortedHoles, scores, fieldStrokes);
       const winners = match.aHolesUp > 0 ? groupA : (match.aHolesUp < 0 ? groupB : []);
-      winners.forEach(pid => { points[pid] += 1; });
+      winners.forEach(pid => { points[pid] += SCORING.individual_stroke.matchPlayBonus; });
     }
   } else if (format === 'best_ball') {
     let aTotal = 0, bTotal = 0; let allHolesPlayed = true;
@@ -267,7 +278,7 @@ const computeRoundPoints = (roundId, scores, strokes, holes, format, cumulativeP
     }
     if (allHolesPlayed) {
       const winners = aTotal < bTotal ? groupA : groupB;
-      winners.forEach(pid => { points[pid] += 15; });
+      winners.forEach(pid => { points[pid] += SCORING.best_ball.winnerPoints; });
     }
   } else if (format === 'scramble') {
     const aCaptain = groupA[0], bCaptain = groupB[0];
@@ -281,12 +292,14 @@ const computeRoundPoints = (roundId, scores, strokes, holes, format, cumulativeP
       aScores.forEach(s => { const hole = holes.find(h => h.hole === s.hole); aTotal += s.gross - getStrokesOnHole(teamMinA, hole?.stroke_index); });
       bScores.forEach(s => { const hole = holes.find(h => h.hole === s.hole); bTotal += s.gross - getStrokesOnHole(teamMinB, hole?.stroke_index); });
       const winners = aTotal < bTotal ? groupA : groupB;
-      winners.forEach(pid => { points[pid] += 15; });
+      winners.forEach(pid => { points[pid] += SCORING.scramble.winnerPoints; });
     }
   } else if (format === 'championship') {
-    // R5: each player's R5 net + position-based starting strokes from R1-R4 standings.
-    // Top 3 by going-in cumulative form a championship trio; bottom 3 form consolation.
-    // 12/8/4 awarded within each trio by lowest adjusted net.
+    // Championship: each player's net for this round + a position-based
+    // starting-stroke adjustment from pre-championship cumulative. The field
+    // is split into halves — top half plays the championship tier, bottom
+    // half plays consolation. SCORING.championship.placement awarded within
+    // each tier by lowest adjusted net.
     if (!cumulativePreR5) return points;
     const ranked = PLAYER_LIST.slice().sort((a, b) =>
       (cumulativePreR5[b.id] || 0) - (cumulativePreR5[a.id] || 0)
@@ -294,8 +307,9 @@ const computeRoundPoints = (roundId, scores, strokes, holes, format, cumulativeP
     const ladder = startingStrokeLadder(PLAYER_LIST.length);
     const adjustment = {};
     ranked.forEach((p, i) => { adjustment[p.id] = ladder[i] ?? 0; });
-    const championshipIds = ranked.slice(0, 3).map(p => p.id);
-    const consolationIds = ranked.slice(3, 6).map(p => p.id);
+    const splitAt = Math.floor(PLAYER_LIST.length / 2);
+    const championshipIds = ranked.slice(0, splitAt).map(p => p.id);
+    const consolationIds = ranked.slice(splitAt).map(p => p.id);
 
     const adjustedNet = {};
     PLAYER_LIST.forEach(p => {
@@ -314,7 +328,7 @@ const computeRoundPoints = (roundId, scores, strokes, holes, format, cumulativeP
       const sorted = groupIds
         .filter(pid => adjustedNet[pid] !== undefined)
         .sort((a, b) => adjustedNet[a] - adjustedNet[b]);
-      const pts = [12, 8, 4];
+      const pts = SCORING.championship.placement;
       sorted.forEach((pid, i) => { points[pid] += pts[i] || 0; });
     };
     rankAndAward(championshipIds);
@@ -1085,7 +1099,7 @@ function RoundSetup({ supabase, roundId, round, strokes, holes, canEdit, cumulat
     const ranked = PLAYER_LIST.slice().sort((a, b) =>
       (cumulativePreR5[b.id] || 0) - (cumulativePreR5[a.id] || 0)
     );
-    const championshipIds = new Set(ranked.slice(0, 3).map(p => p.id));
+    const championshipIds = new Set(ranked.slice(0, Math.floor(PLAYER_LIST.length / 2)).map(p => p.id));
     setLocalStrokes(prev => {
       const out = { ...prev };
       PLAYER_LIST.forEach(p => {

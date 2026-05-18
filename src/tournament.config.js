@@ -40,6 +40,32 @@ export const CHAMPIONSHIP_ROUND_ID = 5;
 // screen as: `${primary} · ${accent}` (with the dot styled).
 export const TOURNAMENT_TITLE = { primary: 'GOLF', accent: 'TRIP' };
 
+// Scoring values for each format. All point arrays are ranked
+// from first prize to last; ties split the affected prizes
+// (e.g. T1 in a 3-some with [5,3,1] = both get 4). If a group
+// has more players than the array has entries, the extra ranks
+// get 0 — so [5, 3, 1] is fine for 3-somes and for 4-somes
+// where the 4th place earns nothing, or use [5, 3, 1, 0]
+// explicitly. Recipes for common sizes are in the README.
+//
+// Engine assumptions still in force: best_ball and scramble
+// require exactly two groups (A and B). Tournaments with one
+// group can only use individual_stroke (and optionally
+// championship). Three or more groups are not yet supported by
+// the engine — see CLAUDE.md for the structural limits.
+export const SCORING = {
+  individual_stroke: {
+    holePoints:     [5, 3, 1],   // per-hole rank within group
+    placement:      [12, 8, 4],  // round placement within group
+    matchPlayBonus: 1,           // +N to each player on team winning the A-vs-B 18-hole best-ball match
+  },
+  best_ball:    { winnerPoints: 15 },
+  scramble:     { winnerPoints: 15 },
+  championship: {
+    placement: [12, 8, 4],       // within each half (championship tier + consolation tier)
+  },
+};
+
 export const PLAYERS = [
   { id: 'dustin', name: 'Dustin', emoji: '🦅', initials: 'DC' },
   { id: 'cliff',  name: 'Cliff',  emoji: '🐅', initials: 'CG' },

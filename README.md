@@ -73,11 +73,49 @@ And add the public key to your `.env` as `VITE_VAPID_PUBLIC_KEY`.
 
 Most customization lives in one file:
 
-- **Players and rounds:** [`src/tournament.config.js`](src/tournament.config.js) — edit `PLAYERS` and `ROUNDS`
+- **Players, rounds, title, admin, scoring:** [`src/tournament.config.js`](src/tournament.config.js) — edit `PLAYERS`, `ROUNDS`, `TOURNAMENT_TITLE`, `ADMIN_PLAYER_ID`, `CHAMPIONSHIP_ROUND_ID`, `SCORING`
 - **Course par + stroke index:** [`db/seed_courses.sql`](db/seed_courses.sql)
 - **Branding (app title, PWA manifest, push notification text):** see [`CLAUDE.md`](CLAUDE.md) for the full list
 
 If you use [Claude Code](https://claude.com/claude-code), [`CLAUDE.md`](CLAUDE.md) tells the agent exactly where the customization seams are. Just open the repo in Claude Code and ask it to "swap in our players and rounds" — it will know what to do.
+
+### Recipes for common group sizes
+
+The engine supports **two groups of any equal size**. Tweak `SCORING` in `tournament.config.js` so prize arrays match your group size.
+
+**4 players, two 2-somes:**
+```js
+export const SCORING = {
+  individual_stroke: { holePoints: [3, 1], placement: [8, 4], matchPlayBonus: 1 },
+  best_ball:    { winnerPoints: 10 },
+  scramble:     { winnerPoints: 10 },
+  championship: { placement: [8, 4] },
+};
+```
+
+**6 players, two 3-somes (default):**
+```js
+export const SCORING = {
+  individual_stroke: { holePoints: [5, 3, 1], placement: [12, 8, 4], matchPlayBonus: 1 },
+  best_ball:    { winnerPoints: 15 },
+  scramble:     { winnerPoints: 15 },
+  championship: { placement: [12, 8, 4] },
+};
+```
+
+**8 players, two 4-somes:**
+```js
+export const SCORING = {
+  individual_stroke: { holePoints: [6, 4, 2, 0], placement: [16, 10, 6, 2], matchPlayBonus: 2 },
+  best_ball:    { winnerPoints: 20 },
+  scramble:     { winnerPoints: 20 },
+  championship: { placement: [16, 10, 6, 2] },
+};
+```
+
+**4 players, single foursome (individual stroke only):** assign all four players to group A in the round setup; leave group B empty. Use the 4-player scoring above. The `best_ball` and `scramble` formats won't award points without two groups, so stick to `individual_stroke` rounds. The championship round still works (top 2 vs bottom 2).
+
+**12+ players (three or more groups):** not yet supported. The engine assumes at most two groups. See [`CLAUDE.md`](CLAUDE.md) "Structural assumptions still baked in" for the work involved.
 
 Issues and PRs welcome.
 
