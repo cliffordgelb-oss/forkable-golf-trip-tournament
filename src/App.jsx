@@ -4,7 +4,7 @@ import {
   Trophy, MessageCircle, BarChart3, Award, LogOut, Send,
   Flag, Target, Zap, ChevronRight, ChevronDown, ChevronUp, Settings, Bell, BellOff, Lock, Check, X, RefreshCw,
 } from 'lucide-react';
-import { PLAYERS, ROUNDS, ADMIN_PLAYER_ID } from './tournament.config';
+import { PLAYERS, ROUNDS, ADMIN_PLAYER_ID, CHAMPIONSHIP_ROUND_ID, TOURNAMENT_TITLE } from './tournament.config';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -13,6 +13,14 @@ const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY;
 const PLAYER_LIST = PLAYERS;
 const ROUND_INFO = Object.fromEntries(ROUNDS.map(r => [r.id, r]));
 const ROUND_IDS = ROUNDS.map(r => r.id);
+const PRE_CHAMPIONSHIP_ROUND_IDS = ROUND_IDS.filter(id => id !== CHAMPIONSHIP_ROUND_ID);
+
+// Starting-stroke adjustments for the championship round, in
+// rank order (1st place first). Symmetric around zero so the
+// top half gets an advantage and the bottom half a penalty.
+// For 6 players this matches the original [-3,-2,-1,0,1,2].
+const startingStrokeLadder = (n) =>
+  Array.from({ length: n }, (_, i) => i - Math.floor(n / 2));
 
 const urlBase64ToUint8Array = (base64String) => {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -283,7 +291,7 @@ const computeRoundPoints = (roundId, scores, strokes, holes, format, cumulativeP
     const ranked = PLAYER_LIST.slice().sort((a, b) =>
       (cumulativePreR5[b.id] || 0) - (cumulativePreR5[a.id] || 0)
     );
-    const ladder = [-3, -2, -1, 0, 1, 2];
+    const ladder = startingStrokeLadder(PLAYER_LIST.length);
     const adjustment = {};
     ranked.forEach((p, i) => { adjustment[p.id] = ladder[i] ?? 0; });
     const championshipIds = ranked.slice(0, 3).map(p => p.id);
@@ -326,13 +334,13 @@ export default function App() {
 
   const [user, setUser] = useState(() => {
     try {
-      const raw = localStorage.getItem('bama_user');
+      const raw = localStorage.getItem('tournament_user');
       if (!raw) return null;
       const parsed = JSON.parse(raw);
       if (parsed && parsed.user && parsed.expiresAt && Date.now() < parsed.expiresAt) {
         return parsed.user;
       }
-      localStorage.removeItem('bama_user');
+      localStorage.removeItem('tournament_user');
       return null;
     } catch { return null; }
   });
@@ -342,9 +350,9 @@ export default function App() {
     try {
       if (u) {
         const expiresAt = Date.now() + 30 * 24 * 60 * 60 * 1000;
-        localStorage.setItem('bama_user', JSON.stringify({ user: u, expiresAt }));
+        localStorage.setItem('tournament_user', JSON.stringify({ user: u, expiresAt }));
       } else {
-        localStorage.removeItem('bama_user');
+        localStorage.removeItem('tournament_user');
       }
     } catch { /* ignore */ }
   };
@@ -353,7 +361,7 @@ export default function App() {
     return (
       <div className="login-bg">
         <div className="login-card">
-          <h1>BAMA <span style={{color:'var(--gold)'}}>·</span> GOLF</h1>
+          <h1>{TOURNAMENT_TITLE.primary} <span style={{color:'var(--gold)'}}>·</span> {TOURNAMENT_TITLE.accent}</h1>
           <div className="sub">Missing Supabase config.</div>
           <p style={{fontSize:'0.9rem', color:'var(--green-mid)'}}>
             Set <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> in <code>.env.local</code>, then restart the dev server.
@@ -468,7 +476,7 @@ function Login({ supabase, onLogin }) {
   return (
     <div className="login-bg">
       <div className="login-card">
-        <h1>BAMA <span style={{color:'var(--gold)'}}>·</span> GOLF</h1>
+        <h1>{TOURNAMENT_TITLE.primary} <span style={{color:'var(--gold)'}}>·</span> {TOURNAMENT_TITLE.accent}</h1>
         <div className="sub">Pick your name, then enter your password.</div>
         <div className="player-grid">
           {PLAYER_LIST.map(p => (
@@ -563,7 +571,7 @@ function Main({ supabase, user, onLogout }) {
       else if (net <= hole.par - 1) setCelebration({ kind: 'birdie', player, hole: score.hole, key: score.id });
     };
 
-    const chan = supabase.channel('bama-live')
+    const chan = supabase.channel('tournament-live')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'scores' }, payload => {
         setAllScores(prev => {
           if (payload.eventType === 'INSERT') {
@@ -621,25 +629,29 @@ function Main({ supabase, user, onLogout }) {
     return totals;
   }, [allRoundPoints]);
 
-  // Going-into-R5 standings = sum of R1-R4 points only.
-  // Drives R5 starting strokes (-3 / -2 / -1 / E / +1 / +2 by rank).
+  // Pre-championship standings = sum of points from every round
+  // except the championship one. Feeds the championship starting
+  // strokes. If CHAMPIONSHIP_ROUND_ID is null, this spans every round.
   const cumulativePreR5 = useMemo(() => {
     const totals = {};
     PLAYER_LIST.forEach(p => totals[p.id] = 0);
-    [1, 2, 3, 4].forEach(r => {
+    PRE_CHAMPIONSHIP_ROUND_IDS.forEach(r => {
       const pts = allRoundPoints[r] || {};
       PLAYER_LIST.forEach(p => { totals[p.id] += pts[p.id] || 0; });
     });
     return totals;
   }, [allRoundPoints]);
 
-  // R5 starting-stroke adjustments by ranking (1st = -3, 6th = +2).
+  // Championship starting-stroke adjustments by ranking. For
+  // 6 players the ladder is -3..+2 (top finisher gets the biggest
+  // advantage). Zeros for everyone if no championship round exists.
   const r5Adjustments = useMemo(() => {
+    if (CHAMPIONSHIP_ROUND_ID == null) return Object.fromEntries(PLAYER_LIST.map(p => [p.id, 0]));
     const ranked = PLAYER_LIST.slice().sort((a, b) =>
       (cumulativePreR5[b.id] || 0) - (cumulativePreR5[a.id] || 0)
     );
+    const ladder = startingStrokeLadder(PLAYER_LIST.length);
     const out = {};
-    const ladder = [-3, -2, -1, 0, 1, 2];
     ranked.forEach((p, i) => { out[p.id] = ladder[i] ?? 0; });
     return out;
   }, [cumulativePreR5]);
@@ -650,7 +662,7 @@ function Main({ supabase, user, onLogout }) {
     <div className="app-root">
       <div className="hdr-stack">
         <div className="hdr">
-          <h1>BAMA <span className="accent">·</span> GOLF</h1>
+          <h1>{TOURNAMENT_TITLE.primary} <span className="accent">·</span> {TOURNAMENT_TITLE.accent}</h1>
           <div className="hdr-user">
             <span style={{fontSize:'1.4rem'}}>{user.emoji}</span>
             <span>{user.name}</span>
@@ -731,18 +743,17 @@ function Leaderboard({ cumulative, user, allRoundPoints }) {
     PLAYER_LIST.map(p => ({ ...p, total: cumulative[p.id] || 0 })).sort((a, b) => b.total - a.total),
   [cumulative]);
 
+  const projectedLadder = startingStrokeLadder(PLAYER_LIST.length);
+
   return (
     <>
       <div className="card featured">
         <h2>Tournament Leaderboard</h2>
-        <div style={{opacity: 0.85, fontSize: '0.95rem', marginBottom: '1rem'}}>
-          Cumulative points across rounds 1–4. Going into Round 5, the top finisher starts at -3 strokes.
-        </div>
         <table className="leaderboard">
           <thead>
             <tr>
               <th>Player</th>
-              <th>R1</th><th>R2</th><th>R3</th><th>R4</th>
+              {PRE_CHAMPIONSHIP_ROUND_IDS.map(r => <th key={r}>R{r}</th>)}
               <th style={{textAlign:'right'}}>Total</th>
             </tr>
           </thead>
@@ -752,7 +763,7 @@ function Leaderboard({ cumulative, user, allRoundPoints }) {
                 <td style={{color: 'var(--cream)'}}>
                   <span style={{fontSize:'1.2rem', marginRight:'0.4rem'}}>{p.emoji}</span>{p.name}
                 </td>
-                {[1,2,3,4].map(r => (
+                {PRE_CHAMPIONSHIP_ROUND_IDS.map(r => (
                   <td key={r} style={{color:'var(--cream)', fontFamily:'JetBrains Mono, monospace'}}>
                     {allRoundPoints[r]?.[p.id] != null ? allRoundPoints[r][p.id] : '·'}
                   </td>
@@ -764,26 +775,28 @@ function Leaderboard({ cumulative, user, allRoundPoints }) {
         </table>
       </div>
 
-      <div className="card">
-        <h3>Projected R5 Starting Strokes</h3>
-        <div style={{fontSize: '0.9rem', color: 'var(--green-mid)', marginBottom: '1rem'}}>Based on current standings.</div>
-        <table className="leaderboard">
-          <tbody>
-            {ranked.map((p, i) => {
-              const strokes = [-3, -2, -1, 0, 1, 2][i];
-              return (
-                <tr key={p.id} className={p.id === user.id ? 'you' : ''}>
-                  <td>{i+1}.</td>
-                  <td><span style={{marginRight:'0.4rem'}}>{p.emoji}</span>{p.name}</td>
-                  <td style={{textAlign:'right', fontFamily:'JetBrains Mono, monospace', fontWeight:700, color: strokes < 0 ? 'var(--green-deep)' : strokes > 0 ? 'var(--red-flag)' : 'var(--ink)'}}>
-                    {strokes === 0 ? 'E' : (strokes > 0 ? '+' : '') + strokes}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      {CHAMPIONSHIP_ROUND_ID != null && (
+        <div className="card">
+          <h3>Projected R{CHAMPIONSHIP_ROUND_ID} Starting Strokes</h3>
+          <div style={{fontSize: '0.9rem', color: 'var(--green-mid)', marginBottom: '1rem'}}>Based on current standings.</div>
+          <table className="leaderboard">
+            <tbody>
+              {ranked.map((p, i) => {
+                const strokes = projectedLadder[i] ?? 0;
+                return (
+                  <tr key={p.id} className={p.id === user.id ? 'you' : ''}>
+                    <td>{i+1}.</td>
+                    <td><span style={{marginRight:'0.4rem'}}>{p.emoji}</span>{p.name}</td>
+                    <td style={{textAlign:'right', fontFamily:'JetBrains Mono, monospace', fontWeight:700, color: strokes < 0 ? 'var(--green-deep)' : strokes > 0 ? 'var(--red-flag)' : 'var(--ink)'}}>
+                      {strokes === 0 ? 'E' : (strokes > 0 ? '+' : '') + strokes}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </>
   );
 }
@@ -1903,7 +1916,7 @@ function Awards({ allScores, allHoles, allStrokes, allRoundPoints, rounds }) {
     PLAYER_LIST.forEach(p => positions[p.id] = []);
     const cum = {};
     PLAYER_LIST.forEach(p => cum[p.id] = 0);
-    [1,2,3,4].forEach(r => {
+    PRE_CHAMPIONSHIP_ROUND_IDS.forEach(r => {
       const pts = allRoundPoints[r] || {};
       PLAYER_LIST.forEach(p => { cum[p.id] += pts[p.id] || 0; });
       const ranked = [...PLAYER_LIST].sort((a,b) => cum[b.id] - cum[a.id]);

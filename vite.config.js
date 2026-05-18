@@ -13,9 +13,9 @@ export default defineConfig({
       injectRegister: false,  // we register manually in main.jsx
       includeAssets: ['apple-touch-icon.png', 'icon-192.png', 'icon-512.png'],
       manifest: {
-        name: 'Bama Golf Trip',
-        short_name: 'Bama Golf',
-        description: 'Live scoring for the Bama Golf Trip',
+        name: 'Golf Tournament',
+        short_name: 'Tournament',
+        description: 'Live scoring for your golf tournament',
         theme_color: '#1a3a2e',
         background_color: '#faf6ed',
         display: 'standalone',

@@ -19,7 +19,13 @@ When someone asks you to "change the players" or "add a round" or "customize for
 
 ### `src/tournament.config.js`
 
-Exports `PLAYERS`, `ROUNDS`, and `ADMIN_PLAYER_ID`. Edit these to match the user's trip. App.jsx imports them and derives its internal lookup maps. Each player needs `{ id, name, emoji, initials }`. Each round needs `{ id, name, format, desc }` — where `format` is a **display label only**, the scoring engine reads the format key from the DB (see "Format keys" below). `ADMIN_PLAYER_ID` must match one of the player ids and gates admin-only UI (course setup, lock-override); set to `null` to disable admin features.
+Exports `PLAYERS`, `ROUNDS`, `ADMIN_PLAYER_ID`, `CHAMPIONSHIP_ROUND_ID`, and `TOURNAMENT_TITLE`. Edit these to match the user's trip. App.jsx imports them and derives its internal lookup maps.
+
+- `PLAYERS` — each `{ id, name, emoji, initials }`.
+- `ROUNDS` — each `{ id, name, format, desc }`. `format` here is the **display label only**; the scoring engine reads the format key from the DB (see "Format keys" below).
+- `ADMIN_PLAYER_ID` — gates admin-only UI (course setup, lock override). Must match one of the player ids, or `null` to disable admin entirely.
+- `CHAMPIONSHIP_ROUND_ID` — the round that runs the `championship` format. Cumulative points from every other round feed its starting-stroke ladder. Set to `null` for tournaments without a championship final — the pre-championship leaderboard then spans every round and the "Projected Starting Strokes" card hides.
+- `TOURNAMENT_TITLE` — `{ primary, accent }` rendered as `${primary} · ${accent}` in the header and login screen.
 
 ### `db/seed_courses.sql`
 
@@ -27,11 +33,11 @@ Hardcoded par + stroke index for each course's 18 holes, keyed by `round_id`. Wh
 
 ### Branding strings (not in the config)
 
-These still hold "Bama"-era strings. When white-labeling, search-and-replace across:
+The visible app title comes from `TOURNAMENT_TITLE` in the config. The static files below hold neutral defaults (`Golf Tournament`, etc.); update them when a forker wants a custom installed-PWA name or notification text:
 
 - `index.html` — `<title>` and `apple-mobile-web-app-title`
 - `vite.config.js` — PWA manifest (`name`, `short_name`, `description`)
-- `src/sw.js` — push notification default title and tag
+- `src/sw.js` — default push title and tag
 - `package.json` — `name` field
 
 ## Format keys (important)
@@ -55,6 +61,17 @@ All in `src/App.jsx`:
 - `computeHoleWinners` — per-hole low-net winner with tie tracking
 - `computeMatchPlayState` — live match-play +1-per-hole-won state
 - `computeRoundPoints(roundId, scores, strokes, holes, formatKey, cumulativePreR5)` — final round-point allocation; this is the function that varies most by format
+- `startingStrokeLadder(n)` — returns the symmetric-around-zero adjustment array for the championship round. For 6 players: `[-3, -2, -1, 0, 1, 2]`. Drives both the projected card on the leaderboard and the actual championship-round scoring.
+
+### Structural assumptions baked into the engine
+
+These are *not* fixed by the config and would require scoring-engine changes if a forker hits them:
+
+- **Two 3-somes for `individual_stroke`** — the per-hole 5/3/1 and round 12/8/4 awards assume each group has exactly 3 players (see `computeRoundPoints` near the `group.length !== 3` check).
+- **Top 3 / bottom 3 championship split** — the `championship` branch hardcodes `slice(0, 3)` and `slice(3, 6)`.
+- **Specific scoring constants** — 5/3/1 hole points, 12/8/4 placement, 15 pts for best-ball/scramble, +1 match bonus. These *define* each format; changing them means designing a new format.
+
+If a forker has a different player count, point them at these spots.
 
 ## DB schema
 

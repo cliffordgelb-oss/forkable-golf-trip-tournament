@@ -1,4 +1,4 @@
-/* Custom service worker for Bama Golf — push handler + offline shell */
+/* Custom service worker — push handler + offline shell */
 import { precacheAndRoute } from 'workbox-precaching'
 import { registerRoute } from 'workbox-routing'
 import { CacheFirst } from 'workbox-strategies'
@@ -19,12 +19,12 @@ registerRoute(
 self.addEventListener('push', (event) => {
   let data = {}
   try { data = event.data?.json() ?? {} } catch { /* fallback below */ }
-  const title = data.title || 'Bama Golf'
+  const title = data.title || 'Golf Tournament'
   const options = {
     body: data.body || '',
     icon: '/icon-192.png',
     badge: '/icon-192.png',
-    tag: data.tag || 'bama-golf',
+    tag: data.tag || 'tournament',
     data: { url: data.url || '/' },
   }
   event.waitUntil(self.registration.showNotification(title, options))

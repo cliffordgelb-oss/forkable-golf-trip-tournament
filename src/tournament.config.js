@@ -23,9 +23,22 @@
 // ADMIN_PLAYER_ID gates admin-only UI (course setup, round
 // lock override, etc.). Must match one of the PLAYERS ids
 // above, or null to disable admin features entirely.
+//
+// CHAMPIONSHIP_ROUND_ID is the round that uses the
+// 'championship' format — cumulative points from every other
+// round feed its starting-stroke adjustments. Set to null if
+// your tournament doesn't have a championship final; the
+// pre-championship leaderboard then spans every round and the
+// starting-strokes card hides.
 // ============================================================
 
 export const ADMIN_PLAYER_ID = 'cliff';
+
+export const CHAMPIONSHIP_ROUND_ID = 5;
+
+// Two-part app title rendered in the header and on the login
+// screen as: `${primary} · ${accent}` (with the dot styled).
+export const TOURNAMENT_TITLE = { primary: 'GOLF', accent: 'TRIP' };
 
 export const PLAYERS = [
   { id: 'dustin', name: 'Dustin', emoji: '🦅', initials: 'DC' },
