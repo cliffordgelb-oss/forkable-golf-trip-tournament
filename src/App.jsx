@@ -63,7 +63,8 @@ const deriveStrokesForFormat = (strokesMap, formatKey) => {
       .map(s => Number(s?.handicap) || 0);
     return hcps.length ? Math.min(...hcps) : 0;
   };
-  const groupMins = { A: groupMin('A'), B: groupMin('B') };
+  const groups = [...new Set(Object.values(strokesMap).map(s => s?.group_assignment).filter(Boolean))];
+  const groupMins = Object.fromEntries(groups.map(g => [g, groupMin(g)]));
   const fieldRelative = formatKey === 'best_ball' || formatKey === 'scramble' || formatKey === 'championship';
   for (const [pid, s] of Object.entries(strokesMap)) {
     if (!s) continue;
@@ -935,13 +936,8 @@ function LivePanel({ supabase, user, rounds, allScores, allStrokes, allHoles, is
   const strokes = allStrokes[selectedRound] || {};
   const holes = allHoles[selectedRound] || [];
   const scores = allScores.filter(s => s.round_id === selectedRound);
-  const iAmScorekeeperA = round?.scorekeeper_a === user.id;
-  const iAmScorekeeperB = round?.scorekeeper_b === user.id;
-  const canSetupRound = iAmScorekeeperA || iAmScorekeeperB || isAdmin;
-  const skA = round?.scorekeeper_a;
-  const skB = round?.scorekeeper_b;
-  const skAName = PLAYER_LIST.find(p => p.id === skA)?.name;
-  const skBName = PLAYER_LIST.find(p => p.id === skB)?.name;
+  const scorekeepers = round?.scorekeepers || {};
+  const canSetupRound = Object.values(scorekeepers).includes(user.id) || isAdmin;
 
   return (
     <>
@@ -988,7 +984,7 @@ function LivePanel({ supabase, user, rounds, allScores, allStrokes, allHoles, is
           supabase={supabase} roundId={selectedRound} formatKey={round?.format}
           roundStatus={round?.status}
           holes={holes} strokes={strokes} scores={scores} user={user}
-          isAdmin={isAdmin} iAmScorekeeperA={iAmScorekeeperA} iAmScorekeeperB={iAmScorekeeperB}
+          isAdmin={isAdmin} scorekeepers={scorekeepers}
           cumulativePreR5={cumulativePreR5}
         />
       )}
@@ -1000,8 +996,7 @@ function RoundSetup({ supabase, roundId, round, strokes, holes, canEdit, cumulat
   const [editing, setEditing] = useState(false);
   const [collapsed, setCollapsed] = useState(true);
   const [localStrokes, setLocalStrokes] = useState({});
-  const [scorekeeperA, setScorekeeperA] = useState(round?.scorekeeper_a || '');
-  const [scorekeeperB, setScorekeeperB] = useState(round?.scorekeeper_b || '');
+  const [localScorekeeperMap, setLocalScorekeeperMap] = useState(round?.scorekeepers || {});
 
   // Reset transient UI state when navigating to a different round.
   useEffect(() => {
@@ -1018,9 +1013,8 @@ function RoundSetup({ supabase, roundId, round, strokes, holes, canEdit, cumulat
       };
     });
     setLocalStrokes(out);
-    setScorekeeperA(round?.scorekeeper_a || '');
-    setScorekeeperB(round?.scorekeeper_b || '');
-  }, [strokes, round?.scorekeeper_a, round?.scorekeeper_b]);
+    setLocalScorekeeperMap(round?.scorekeepers || {});
+  }, [strokes, round?.scorekeepers]);
 
   // Live preview: derive group-relative and field-relative strokes from the form's current handicap inputs
   const previewStrokes = useMemo(() => {
@@ -1038,10 +1032,10 @@ function RoundSetup({ supabase, roundId, round, strokes, holes, canEdit, cumulat
   }, [localStrokes]);
 
   const saveSetup = async () => {
-    if (scorekeeperA !== round?.scorekeeper_a || scorekeeperB !== round?.scorekeeper_b) {
+    const existingScorekeeperMap = round?.scorekeepers || {};
+    if (JSON.stringify(localScorekeeperMap) !== JSON.stringify(existingScorekeeperMap)) {
       await supabase.from('rounds').update({
-        scorekeeper_a: scorekeeperA || null,
-        scorekeeper_b: scorekeeperB || null,
+        scorekeepers: localScorekeeperMap,
       }).eq('id', roundId);
     }
     const rows = PLAYER_LIST.map(p => ({
@@ -1095,9 +1089,7 @@ function RoundSetup({ supabase, roundId, round, strokes, holes, canEdit, cumulat
         {!collapsed && (() => {
           const groupRel = deriveStrokesForFormat(strokes, 'individual_stroke');
           const fieldRel = deriveStrokesForFormat(strokes, 'best_ball');
-          // Scorekeepers are stored in two DB columns; map A → scorekeeper_a,
-          // B → scorekeeper_b, and (for 3+ groups) other letters get neither.
-          const skId = (g) => g === 'A' ? round?.scorekeeper_a : (g === 'B' ? round?.scorekeeper_b : null);
+          const skId = (g) => round?.scorekeepers?.[g] || null;
           const skName = (g) => PLAYER_LIST.find(p => p.id === skId(g))?.name;
           return (
             <div className="setup-groups" style={{marginTop:'0.85rem'}}>
@@ -1173,20 +1165,21 @@ function RoundSetup({ supabase, roundId, round, strokes, holes, canEdit, cumulat
       )}
 
       <div className="sk-row">
-        <div>
-          <label className="sk-label">Group A scorekeeper</label>
-          <select value={scorekeeperA} onChange={e => setScorekeeperA(e.target.value)}>
-            <option value="">— pick scorekeeper —</option>
-            {PLAYER_LIST.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="sk-label">Group B scorekeeper</label>
-          <select value={scorekeeperB} onChange={e => setScorekeeperB(e.target.value)}>
-            <option value="">— pick scorekeeper —</option>
-            {PLAYER_LIST.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        </div>
+        {GROUP_LETTERS.map(g => (
+          <div key={g}>
+            <label className="sk-label">Group {g} scorekeeper</label>
+            <select
+              value={localScorekeeperMap[g] || ''}
+              onChange={e => setLocalScorekeeperMap(prev => ({
+                ...prev,
+                [g]: e.target.value || undefined,
+              }))}
+            >
+              <option value="">— pick scorekeeper —</option>
+              {PLAYER_LIST.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+        ))}
       </div>
 
       <div style={{display:'grid', gap:'0.5rem'}}>
@@ -1231,7 +1224,7 @@ function RoundSetup({ supabase, roundId, round, strokes, holes, canEdit, cumulat
   );
 }
 
-function ScoringGrid({ supabase, roundId, formatKey, roundStatus, holes, strokes, scores, user, isAdmin, iAmScorekeeperA, iAmScorekeeperB, cumulativePreR5 }) {
+function ScoringGrid({ supabase, roundId, formatKey, roundStatus, holes, strokes, scores, user, isAdmin, scorekeepers, cumulativePreR5 }) {
   const [editing, setEditing] = useState(null);
   const [editValue, setEditValue] = useState('');
   const [nineView, setNineView] = useState('front');
@@ -1341,20 +1334,11 @@ function ScoringGrid({ supabase, roundId, formatKey, roundStatus, holes, strokes
     ? [myGroup, ...groupLetters.filter(g => g !== myGroup)]
     : groupLetters.filter(g => playersInGroup(g).length);
 
-  const canEditGroup = (g) => {
-    if (isLocked) return false;
-    // With at most two groups, scorekeepers are tied to their group. With 3+
-    // groups, the DB still has only scorekeeper_a/_b columns, so either
-    // assigned scorekeeper can edit any group's scores.
-    if (groupLetters.length <= 2) {
-      if (g === 'A') return iAmScorekeeperA;
-      if (g === 'B') return iAmScorekeeperB;
-      return false;
-    }
-    return iAmScorekeeperA || iAmScorekeeperB;
-  };
-  const canEditAny = !isLocked && (iAmScorekeeperA || iAmScorekeeperB);
-  const canEditAnyIfUnlocked = iAmScorekeeperA || iAmScorekeeperB;
+  // Each group maps to exactly one scorekeeper, regardless of how many groups exist.
+  const iAmScorekeeperForGroup = (g) => (scorekeepers || {})[g] === user.id;
+  const canEditGroup = (g) => !isLocked && iAmScorekeeperForGroup(g);
+  const canEditAny = !isLocked && Object.values(scorekeepers || {}).includes(user.id);
+  const canEditAnyIfUnlocked = Object.values(scorekeepers || {}).includes(user.id);
 
   const getScore = (pid, hole) => scores.find(s => s.player_id === pid && s.hole === hole);
 

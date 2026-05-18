@@ -76,11 +76,13 @@ How each format scales:
 - **`best_ball` / `scramble`** — **winner takes all**. Lowest team total gets `winnerPoints`; everyone else gets 0. Ties = every tied team wins.
 - **`championship`** — players split into tiers of `CHAMPIONSHIP_TIER_SIZE` by pre-championship cumulative rank. `SCORING.championship.placement` is applied within each tier.
 
+### Scorekeeper access control
+
+`rounds.scorekeepers` is a JSONB column (`{"A": "player_id", "B": "player_id", "C": "player_id", ...}`). There is exactly **one** scorekeeper per group, no matter how many groups exist. In `ScoringGrid`, `canEditGroup(g)` checks `scorekeepers[g] === user.id` — period. The setup UI in `RoundSetup` renders one `<select>` per `GROUP_LETTERS` entry and writes back to this JSONB column.
+
 ### Structural assumptions still baked in
 
 These would require real engine work to change — flag them if a forker hits the limit:
-
-- **Scorekeepers stay at 2 DB columns (`scorekeeper_a`, `scorekeeper_b`).** With 3+ groups, the engine treats either assigned scorekeeper as authorised to edit any group's scores. A multi-scorekeeper DB schema would be a follow-up.
 - **Single-group tournaments** (one foursome of 4 players, NUM_GROUPS=1) can only meaningfully use `individual_stroke` and `championship`. Team formats need at least 2 groups to produce a winner.
 - **Live match-play banner above scoring grid** only renders for exactly 2 groups. For 3+ groups, the per-pair matches are too many for a single banner — the per-group cards show the data.
 

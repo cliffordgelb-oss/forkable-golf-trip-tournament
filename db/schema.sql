@@ -38,12 +38,13 @@ create table if not exists players (
 -- scoring engine in src/App.jsx — keep it in sync with the
 -- (display-only) format label in ROUNDS in tournament.config.js.
 create table if not exists rounds (
-  id             int primary key,
-  name           text not null,
-  format         text not null check (format in ('individual_stroke', 'best_ball', 'scramble', 'championship')),
-  status         text not null default 'active' check (status in ('active', 'complete')),
-  scorekeeper_a  text references players(id),
-  scorekeeper_b  text references players(id)
+  id            int primary key,
+  name          text not null,
+  format        text not null check (format in ('individual_stroke', 'best_ball', 'scramble', 'championship')),
+  status        text not null default 'active' check (status in ('active', 'complete')),
+  -- Maps group letter → player_id for the scorekeeper of that group.
+  -- One entry per group: {"A": "alice", "B": "bob", "C": "carol", ...}
+  scorekeepers  jsonb not null default '{}'
 );
 
 -- ===== Holes (par + stroke index per round) =====
