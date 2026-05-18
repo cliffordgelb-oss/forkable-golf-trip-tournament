@@ -36,6 +36,23 @@ export const ADMIN_PLAYER_ID = 'cliff';
 
 export const CHAMPIONSHIP_ROUND_ID = 5;
 
+// Number of foursomes / threesomes / pairs the field splits into
+// each round (groups A, B, C, ... up to A-Z). The setup UI shows
+// this many group letters in the per-player picker. For 6 players
+// in two 3-somes use 2; for 12 players in three 4-somes use 3.
+// Engine assumptions: best_ball/scramble pit every group against
+// the others (winner-takes-all). individual_stroke does pairwise
+// round-robin match-play across groups.
+export const NUM_GROUPS = 2;
+
+// Players per championship tier (top finisher first). The field
+// is split into tiers of this size by pre-championship cumulative
+// rank, with SCORING.championship.placement applied within each
+// tier. Defaults to half the field, which produces the classic
+// "championship vs consolation" two-tier split. For 12 players,
+// set to 4 to get three tiers of 4.
+export const CHAMPIONSHIP_TIER_SIZE = Math.floor(PLAYERS.length / 2);
+
 // Two-part app title rendered in the header and on the login
 // screen as: `${primary} · ${accent}` (with the dot styled).
 export const TOURNAMENT_TITLE = { primary: 'GOLF', accent: 'TRIP' };

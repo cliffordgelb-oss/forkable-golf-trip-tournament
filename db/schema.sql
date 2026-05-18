@@ -63,7 +63,7 @@ create table if not exists round_strokes (
   round_id          int  not null references rounds(id) on delete cascade,
   player_id         text not null references players(id) on delete cascade,
   handicap          int  not null default 0,
-  group_assignment  text check (group_assignment is null or group_assignment in ('A', 'B')),
+  group_assignment  text check (group_assignment is null or group_assignment ~ '^[A-Z]$'),
   primary key (round_id, player_id)
 );
 

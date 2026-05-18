@@ -27,6 +27,8 @@ Exports `PLAYERS`, `ROUNDS`, `ADMIN_PLAYER_ID`, `CHAMPIONSHIP_ROUND_ID`, and `TO
 - `CHAMPIONSHIP_ROUND_ID` — the round that runs the `championship` format. Cumulative points from every other round feed its starting-stroke ladder. Set to `null` for tournaments without a championship final — the pre-championship leaderboard then spans every round and the "Projected Starting Strokes" card hides.
 - `TOURNAMENT_TITLE` — `{ primary, accent }` rendered as `${primary} · ${accent}` in the header and login screen.
 - `SCORING` — point values per format. `individual_stroke.holePoints` and `.placement` are ranked-prize arrays; ties split prizes (T1 in a 3-some with `[5,3,1]` → both get 4). Increase array length to match larger groups, e.g. `[5,3,1,0]` for 4-somes. `winnerPoints` and `matchPlayBonus` are scalars.
+- `NUM_GROUPS` — how many groups (A, B, C, ...) the field splits into each round. Drives the setup-screen dropdown and column labels. Default 2.
+- `CHAMPIONSHIP_TIER_SIZE` — players per championship tier. Default `Math.floor(PLAYERS.length / 2)` (classic championship/consolation split). For 12 players in 3 tiers of 4, set to 4.
 
 ### `db/seed_courses.sql`
 
@@ -66,14 +68,21 @@ All in `src/App.jsx`:
 
 ### Group-size flexibility
 
-The engine supports **two groups of any equal size** (e.g. two 2-somes / 3-somes / 4-somes). Scoring values come from `SCORING` in tournament.config.js — `holePoints`, `placement`, `winnerPoints`, `matchPlayBonus`. If a group has more players than the prize array has entries, extra ranks get 0 (no NaN). Championship split = `Math.floor(PLAYERS.length / 2)`.
+The engine supports **any number of equally-sized groups** (set `NUM_GROUPS` in the config). The DB `group_assignment` CHECK allows A-Z. Scoring values come from `SCORING` — `holePoints`, `placement`, `winnerPoints`, `matchPlayBonus`. Prize arrays beyond the group size pad with 0 (no NaN).
+
+How each format scales:
+
+- **`individual_stroke`** — per-group placement awarded independently. Match-play bonus runs **round-robin**: every pair of groups plays an 18-hole best-ball match; each match a team wins, every player on that team gets `matchPlayBonus`. With 3 groups, that's 3 matches and a team can win up to 2.
+- **`best_ball` / `scramble`** — **winner takes all**. Lowest team total gets `winnerPoints`; everyone else gets 0. Ties = every tied team wins.
+- **`championship`** — players split into tiers of `CHAMPIONSHIP_TIER_SIZE` by pre-championship cumulative rank. `SCORING.championship.placement` is applied within each tier.
 
 ### Structural assumptions still baked in
 
 These would require real engine work to change — flag them if a forker hits the limit:
 
-- **Best-ball and scramble require exactly two groups (A and B).** The DB `group_assignment` CHECK allows `'A' | 'B' | null` and the engine extracts those two arrays explicitly. Tournaments with **3+ groups** (e.g. 12 players in three 4-somes) are not yet supported — they'd need a CHECK widening, a multi-group engine, and a redesign of how three teams compete in best-ball/scramble.
-- **Single-group tournaments** (e.g. 4 players all in one foursome) can only use `individual_stroke` and `championship`. The team formats don't apply.
+- **Scorekeepers stay at 2 DB columns (`scorekeeper_a`, `scorekeeper_b`).** With 3+ groups, the engine treats either assigned scorekeeper as authorised to edit any group's scores. A multi-scorekeeper DB schema would be a follow-up.
+- **Single-group tournaments** (one foursome of 4 players, NUM_GROUPS=1) can only meaningfully use `individual_stroke` and `championship`. Team formats need at least 2 groups to produce a winner.
+- **Live match-play banner above scoring grid** only renders for exactly 2 groups. For 3+ groups, the per-pair matches are too many for a single banner — the per-group cards show the data.
 
 ## DB schema
 

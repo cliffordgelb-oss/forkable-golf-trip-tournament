@@ -81,9 +81,9 @@ If you use [Claude Code](https://claude.com/claude-code), [`CLAUDE.md`](CLAUDE.m
 
 ### Recipes for common group sizes
 
-The engine supports **two groups of any equal size**. Tweak `SCORING` in `tournament.config.js` so prize arrays match your group size.
+The engine supports **any number of equally-sized groups** (set `NUM_GROUPS`). Tweak `SCORING` so prize arrays match your group size.
 
-**4 players, two 2-somes:**
+**4 players, two 2-somes** — `NUM_GROUPS = 2`, `CHAMPIONSHIP_TIER_SIZE = 2`:
 ```js
 export const SCORING = {
   individual_stroke: { holePoints: [3, 1], placement: [8, 4], matchPlayBonus: 1 },
@@ -93,7 +93,7 @@ export const SCORING = {
 };
 ```
 
-**6 players, two 3-somes (default):**
+**6 players, two 3-somes (default)** — `NUM_GROUPS = 2`, `CHAMPIONSHIP_TIER_SIZE = 3`:
 ```js
 export const SCORING = {
   individual_stroke: { holePoints: [5, 3, 1], placement: [12, 8, 4], matchPlayBonus: 1 },
@@ -103,7 +103,7 @@ export const SCORING = {
 };
 ```
 
-**8 players, two 4-somes:**
+**8 players, two 4-somes** — `NUM_GROUPS = 2`, `CHAMPIONSHIP_TIER_SIZE = 4`:
 ```js
 export const SCORING = {
   individual_stroke: { holePoints: [6, 4, 2, 0], placement: [16, 10, 6, 2], matchPlayBonus: 2 },
@@ -113,9 +113,20 @@ export const SCORING = {
 };
 ```
 
-**4 players, single foursome (individual stroke only):** assign all four players to group A in the round setup; leave group B empty. Use the 4-player scoring above. The `best_ball` and `scramble` formats won't award points without two groups, so stick to `individual_stroke` rounds. The championship round still works (top 2 vs bottom 2).
+**12 players, three 4-somes** — `NUM_GROUPS = 3`, `CHAMPIONSHIP_TIER_SIZE = 4`:
+```js
+export const SCORING = {
+  // Round-robin match play: max 2 wins per team (3 pairs of groups → 3 matches).
+  individual_stroke: { holePoints: [6, 4, 2, 0], placement: [16, 10, 6, 2], matchPlayBonus: 2 },
+  // Winner takes all across all three teams; ties split.
+  best_ball:    { winnerPoints: 20 },
+  scramble:     { winnerPoints: 20 },
+  // Three tiers of 4 by pre-championship rank.
+  championship: { placement: [16, 10, 6, 2] },
+};
+```
 
-**12+ players (three or more groups):** not yet supported. The engine assumes at most two groups. See [`CLAUDE.md`](CLAUDE.md) "Structural assumptions still baked in" for the work involved.
+**4 players, single foursome (individual stroke only):** assign all four players to group A in the round setup; leave group B empty. Use the 4-player scoring above. The `best_ball` and `scramble` formats won't award points without two groups, so stick to `individual_stroke` rounds. The championship round still works (top 2 vs bottom 2).
 
 Issues and PRs welcome.
 

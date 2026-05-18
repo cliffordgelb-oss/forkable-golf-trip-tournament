@@ -4,7 +4,7 @@ import {
   Trophy, MessageCircle, BarChart3, Award, LogOut, Send,
   Flag, Target, Zap, ChevronRight, ChevronDown, ChevronUp, Settings, Bell, BellOff, Lock, Check, X, RefreshCw,
 } from 'lucide-react';
-import { PLAYERS, ROUNDS, ADMIN_PLAYER_ID, CHAMPIONSHIP_ROUND_ID, TOURNAMENT_TITLE, SCORING } from './tournament.config';
+import { PLAYERS, ROUNDS, ADMIN_PLAYER_ID, CHAMPIONSHIP_ROUND_ID, TOURNAMENT_TITLE, SCORING, NUM_GROUPS, CHAMPIONSHIP_TIER_SIZE } from './tournament.config';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -21,6 +21,16 @@ const PRE_CHAMPIONSHIP_ROUND_IDS = ROUND_IDS.filter(id => id !== CHAMPIONSHIP_RO
 // For 6 players this matches the original [-3,-2,-1,0,1,2].
 const startingStrokeLadder = (n) =>
   Array.from({ length: n }, (_, i) => i - Math.floor(n / 2));
+
+// Group letters this tournament uses. NUM_GROUPS=2 → ['A','B'];
+// NUM_GROUPS=3 → ['A','B','C']; etc. Used by setup UI and as a
+// fallback when no players are yet assigned.
+const GROUP_LETTERS = Array.from({ length: NUM_GROUPS }, (_, i) => String.fromCharCode(65 + i));
+
+// Find every distinct non-null group letter present in the
+// strokes map, sorted. Returns [] when no players are assigned.
+const detectGroupLetters = (strokes) =>
+  [...new Set(Object.values(strokes || {}).map(s => s?.group_assignment).filter(Boolean))].sort();
 
 const urlBase64ToUint8Array = (base64String) => {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -228,78 +238,108 @@ const allocate3WaySplit = (entries, prizes, betterIsLower) => {
 const computeRoundPoints = (roundId, scores, strokes, holes, format, cumulativePreR5 = null) => {
   const points = {};
   PLAYER_LIST.forEach(p => points[p.id] = 0);
-  const groupA = Object.entries(strokes).filter(([_, s]) => s?.group_assignment === 'A').map(([id]) => id);
-  const groupB = Object.entries(strokes).filter(([_, s]) => s?.group_assignment === 'B').map(([id]) => id);
+
+  // Discover the groups actually present in this round (could be A/B,
+  // A/B/C, etc.). Engine works for any number of groups; UI surfaces
+  // NUM_GROUPS letters in the picker.
+  const groupLetters = detectGroupLetters(strokes);
+  const groups = Object.fromEntries(
+    groupLetters.map(g => [g, Object.entries(strokes).filter(([_, s]) => s?.group_assignment === g).map(([id]) => id)])
+  );
   const effectiveStrokes = deriveStrokesForFormat(strokes, format);
 
   if (format === 'individual_stroke') {
     const sortedHoles = [...holes].sort((a, b) => a.hole - b.hole);
-    // Per-hole 5/3/1 within each group (group-relative handicaps) — used only to rank placement; not added to leaderboard.
-    const aStandings = computeHolePointStandings(groupA, sortedHoles, scores, effectiveStrokes);
-    const bStandings = computeHolePointStandings(groupB, sortedHoles, scores, effectiveStrokes);
+    const standings = Object.fromEntries(
+      groupLetters.map(g => [g, computeHolePointStandings(groups[g], sortedHoles, scores, effectiveStrokes)])
+    );
 
     // Round placement: SCORING.individual_stroke.placement within each group by
-    // total hole-points (ties split). Only fires when all 18 holes played by
-    // every player in the group.
-    const awardRoundPlaces = (group, standings) => {
-      if (group.length < 2 || standings.thruHole !== 18) return;
-      const entries = group.map(pid => ({ pid, value: standings.totals[pid] }));
+    // total hole-points (ties split). Fires per group once all 18 holes played
+    // by every player in that group.
+    const awardRoundPlaces = (group, standing) => {
+      if (group.length < 2 || standing.thruHole !== 18) return;
+      const entries = group.map(pid => ({ pid, value: standing.totals[pid] }));
       const alloc = allocate3WaySplit(entries, SCORING.individual_stroke.placement, false);
       for (const pid of Object.keys(alloc)) points[pid] += alloc[pid];
     };
-    awardRoundPlaces(groupA, aStandings);
-    awardRoundPlaces(groupB, bStandings);
+    for (const g of groupLetters) awardRoundPlaces(groups[g], standings[g]);
 
-    // Team match-play bonus: A vs B best-ball, field-relative handicaps. Tied
-    // match = wash. Only fires when both groups exist and have played 18.
-    if (groupA.length > 0 && groupB.length > 0 && aStandings.thruHole === 18 && bStandings.thruHole === 18) {
-      const fieldStrokes = deriveStrokesForFormat(strokes, 'best_ball');
-      const match = computeTeamBestBallMatch(groupA, groupB, sortedHoles, scores, fieldStrokes);
-      const winners = match.aHolesUp > 0 ? groupA : (match.aHolesUp < 0 ? groupB : []);
-      winners.forEach(pid => { points[pid] += SCORING.individual_stroke.matchPlayBonus; });
+    // Round-robin match-play bonus between every pair of groups. Each pair
+    // plays an 18-hole best-ball match using field-relative handicaps; each
+    // player on a winning team gets SCORING.individual_stroke.matchPlayBonus
+    // per match won. Ties wash.
+    const fieldStrokes = deriveStrokesForFormat(strokes, 'best_ball');
+    for (let i = 0; i < groupLetters.length; i++) {
+      for (let j = i + 1; j < groupLetters.length; j++) {
+        const ga = groupLetters[i], gb = groupLetters[j];
+        if (standings[ga].thruHole !== 18 || standings[gb].thruHole !== 18) continue;
+        const match = computeTeamBestBallMatch(groups[ga], groups[gb], sortedHoles, scores, fieldStrokes);
+        const winners = match.aHolesUp > 0 ? groups[ga] : (match.aHolesUp < 0 ? groups[gb] : []);
+        winners.forEach(pid => { points[pid] += SCORING.individual_stroke.matchPlayBonus; });
+      }
     }
   } else if (format === 'best_ball') {
-    let aTotal = 0, bTotal = 0; let allHolesPlayed = true;
-    for (let h = 1; h <= 18; h++) {
-      const hole = holes.find(hh => hh.hole === h);
-      const aNets = groupA.map(pid => {
-        const s = scores.find(sc => sc.player_id === pid && sc.hole === h);
-        if (!s) return null;
-        return s.gross - getStrokesOnHole(effectiveStrokes[pid] || 0, hole?.stroke_index);
-      }).filter(v => v !== null);
-      const bNets = groupB.map(pid => {
-        const s = scores.find(sc => sc.player_id === pid && sc.hole === h);
-        if (!s) return null;
-        return s.gross - getStrokesOnHole(effectiveStrokes[pid] || 0, hole?.stroke_index);
-      }).filter(v => v !== null);
-      if (aNets.length === 0 || bNets.length === 0) { allHolesPlayed = false; break; }
-      aTotal += Math.min(...aNets);
-      bTotal += Math.min(...bNets);
+    // Per-group team total = sum of per-hole min net. Lowest total wins
+    // SCORING.best_ball.winnerPoints for every player on the team. Ties =
+    // everyone tied wins.
+    const teamTotals = {};
+    for (const g of groupLetters) {
+      let total = 0, complete = true;
+      for (let h = 1; h <= 18; h++) {
+        const hole = holes.find(hh => hh.hole === h);
+        const nets = groups[g].map(pid => {
+          const s = scores.find(sc => sc.player_id === pid && sc.hole === h);
+          if (!s) return null;
+          return s.gross - getStrokesOnHole(effectiveStrokes[pid] || 0, hole?.stroke_index);
+        }).filter(v => v !== null);
+        if (nets.length === 0) { complete = false; break; }
+        total += Math.min(...nets);
+      }
+      if (complete) teamTotals[g] = total;
     }
-    if (allHolesPlayed) {
-      const winners = aTotal < bTotal ? groupA : groupB;
-      winners.forEach(pid => { points[pid] += SCORING.best_ball.winnerPoints; });
+    if (groupLetters.length > 0 && Object.keys(teamTotals).length === groupLetters.length) {
+      const minTotal = Math.min(...Object.values(teamTotals));
+      for (const g of groupLetters) {
+        if (teamTotals[g] === minTotal) {
+          groups[g].forEach(pid => { points[pid] += SCORING.best_ball.winnerPoints; });
+        }
+      }
     }
   } else if (format === 'scramble') {
-    const aCaptain = groupA[0], bCaptain = groupB[0];
-    const aScores = scores.filter(s => s.player_id === aCaptain);
-    const bScores = scores.filter(s => s.player_id === bCaptain);
-    if (aScores.length === 18 && bScores.length === 18) {
-      let aTotal = 0, bTotal = 0;
-      // Team handicap = lowest field-relative strokes on the team (most generous interpretation)
-      const teamMinA = Math.min(...groupA.map(pid => effectiveStrokes[pid] || 0));
-      const teamMinB = Math.min(...groupB.map(pid => effectiveStrokes[pid] || 0));
-      aScores.forEach(s => { const hole = holes.find(h => h.hole === s.hole); aTotal += s.gross - getStrokesOnHole(teamMinA, hole?.stroke_index); });
-      bScores.forEach(s => { const hole = holes.find(h => h.hole === s.hole); bTotal += s.gross - getStrokesOnHole(teamMinB, hole?.stroke_index); });
-      const winners = aTotal < bTotal ? groupA : groupB;
-      winners.forEach(pid => { points[pid] += SCORING.scramble.winnerPoints; });
+    // Each team plays one ball; scores are recorded under the captain
+    // (first player by id ordering within the group). Lowest team net total
+    // wins SCORING.scramble.winnerPoints. Ties = everyone tied wins.
+    const teamTotals = {};
+    for (const g of groupLetters) {
+      if (groups[g].length === 0) continue;
+      const captain = groups[g][0];
+      const capScores = scores.filter(s => s.player_id === captain);
+      if (capScores.length !== 18) continue;
+      // Team handicap = lowest field-relative strokes on the team (most
+      // generous interpretation).
+      const teamMin = Math.min(...groups[g].map(pid => effectiveStrokes[pid] || 0));
+      let total = 0;
+      capScores.forEach(s => {
+        const hole = holes.find(h => h.hole === s.hole);
+        total += s.gross - getStrokesOnHole(teamMin, hole?.stroke_index);
+      });
+      teamTotals[g] = total;
+    }
+    if (groupLetters.length > 0 && Object.keys(teamTotals).length === groupLetters.length) {
+      const minTotal = Math.min(...Object.values(teamTotals));
+      for (const g of groupLetters) {
+        if (teamTotals[g] === minTotal) {
+          groups[g].forEach(pid => { points[pid] += SCORING.scramble.winnerPoints; });
+        }
+      }
     }
   } else if (format === 'championship') {
     // Championship: each player's net for this round + a position-based
     // starting-stroke adjustment from pre-championship cumulative. The field
-    // is split into halves — top half plays the championship tier, bottom
-    // half plays consolation. SCORING.championship.placement awarded within
-    // each tier by lowest adjusted net.
+    // is split into tiers of CHAMPIONSHIP_TIER_SIZE players by cumulative
+    // rank (top finisher first), and SCORING.championship.placement is
+    // applied within each tier by lowest adjusted net.
     if (!cumulativePreR5) return points;
     const ranked = PLAYER_LIST.slice().sort((a, b) =>
       (cumulativePreR5[b.id] || 0) - (cumulativePreR5[a.id] || 0)
@@ -307,9 +347,12 @@ const computeRoundPoints = (roundId, scores, strokes, holes, format, cumulativeP
     const ladder = startingStrokeLadder(PLAYER_LIST.length);
     const adjustment = {};
     ranked.forEach((p, i) => { adjustment[p.id] = ladder[i] ?? 0; });
-    const splitAt = Math.floor(PLAYER_LIST.length / 2);
-    const championshipIds = ranked.slice(0, splitAt).map(p => p.id);
-    const consolationIds = ranked.slice(splitAt).map(p => p.id);
+
+    const tierSize = Math.max(1, CHAMPIONSHIP_TIER_SIZE);
+    const tiers = [];
+    for (let i = 0; i < ranked.length; i += tierSize) {
+      tiers.push(ranked.slice(i, i + tierSize).map(p => p.id));
+    }
 
     const adjustedNet = {};
     PLAYER_LIST.forEach(p => {
@@ -324,15 +367,14 @@ const computeRoundPoints = (roundId, scores, strokes, holes, format, cumulativeP
       adjustedNet[p.id] = net + (adjustment[p.id] || 0);
     });
 
-    const rankAndAward = (groupIds) => {
-      const sorted = groupIds
+    const rankAndAward = (tierIds) => {
+      const sorted = tierIds
         .filter(pid => adjustedNet[pid] !== undefined)
         .sort((a, b) => adjustedNet[a] - adjustedNet[b]);
       const pts = SCORING.championship.placement;
       sorted.forEach((pid, i) => { points[pid] += pts[i] || 0; });
     };
-    rankAndAward(championshipIds);
-    rankAndAward(consolationIds);
+    for (const tier of tiers) rankAndAward(tier);
   }
   return points;
 };
@@ -1022,8 +1064,8 @@ function RoundSetup({ supabase, roundId, round, strokes, holes, canEdit, cumulat
   const allSet = PLAYER_LIST.every(p => strokes[p.id]?.group_assignment);
 
   if (!editing && allSet) {
-    const groupAEmojis = PLAYER_LIST.filter(p => strokes[p.id]?.group_assignment === 'A').map(p => p.emoji).join(' ');
-    const groupBEmojis = PLAYER_LIST.filter(p => strokes[p.id]?.group_assignment === 'B').map(p => p.emoji).join(' ');
+    const assignedLetters = detectGroupLetters(strokes);
+    const emojisFor = (g) => PLAYER_LIST.filter(p => strokes[p.id]?.group_assignment === g).map(p => p.emoji).join(' ');
     return (
       <div className="card setup-card">
         <button
@@ -1036,9 +1078,12 @@ function RoundSetup({ supabase, roundId, round, strokes, holes, canEdit, cumulat
           <span className="setup-header-label">Setup</span>
           {collapsed && (
             <span className="setup-header-summary">
-              <span>A: {groupAEmojis}</span>
-              <span style={{margin:'0 0.4rem', opacity:0.5}}>·</span>
-              <span>B: {groupBEmojis}</span>
+              {assignedLetters.map((g, i) => (
+                <Fragment key={g}>
+                  {i > 0 && <span style={{margin:'0 0.4rem', opacity:0.5}}>·</span>}
+                  <span>{g}: {emojisFor(g)}</span>
+                </Fragment>
+              ))}
             </span>
           )}
         </button>
@@ -1050,11 +1095,13 @@ function RoundSetup({ supabase, roundId, round, strokes, holes, canEdit, cumulat
         {!collapsed && (() => {
           const groupRel = deriveStrokesForFormat(strokes, 'individual_stroke');
           const fieldRel = deriveStrokesForFormat(strokes, 'best_ball');
-          const skId = (g) => g === 'A' ? round?.scorekeeper_a : round?.scorekeeper_b;
+          // Scorekeepers are stored in two DB columns; map A → scorekeeper_a,
+          // B → scorekeeper_b, and (for 3+ groups) other letters get neither.
+          const skId = (g) => g === 'A' ? round?.scorekeeper_a : (g === 'B' ? round?.scorekeeper_b : null);
           const skName = (g) => PLAYER_LIST.find(p => p.id === skId(g))?.name;
           return (
             <div className="setup-groups" style={{marginTop:'0.85rem'}}>
-              {['A','B'].map(g => (
+              {assignedLetters.map(g => (
                 <div key={g}>
                   <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:'0.5rem', gap:'0.5rem', flexWrap:'wrap'}}>
                     <div className="pill setup-group-pill" style={{margin:0}}>Group {g}</div>
@@ -1099,14 +1146,13 @@ function RoundSetup({ supabase, roundId, round, strokes, holes, canEdit, cumulat
     const ranked = PLAYER_LIST.slice().sort((a, b) =>
       (cumulativePreR5[b.id] || 0) - (cumulativePreR5[a.id] || 0)
     );
-    const championshipIds = new Set(ranked.slice(0, Math.floor(PLAYER_LIST.length / 2)).map(p => p.id));
     setLocalStrokes(prev => {
       const out = { ...prev };
-      PLAYER_LIST.forEach(p => {
-        out[p.id] = {
-          ...(out[p.id] || {}),
-          group: championshipIds.has(p.id) ? 'A' : 'B',
-        };
+      ranked.forEach((p, i) => {
+        const tierIndex = Math.floor(i / Math.max(1, CHAMPIONSHIP_TIER_SIZE));
+        // Wrap to the last available letter if tiers outnumber NUM_GROUPS.
+        const letter = GROUP_LETTERS[Math.min(tierIndex, GROUP_LETTERS.length - 1)];
+        out[p.id] = { ...(out[p.id] || {}), group: letter };
       });
       return out;
     });
@@ -1116,12 +1162,12 @@ function RoundSetup({ supabase, roundId, round, strokes, holes, canEdit, cumulat
     <div className="card">
       <h3>Round Setup {canEdit && '(scorekeeper)'}</h3>
       <p style={{fontSize:'0.85rem', color:'var(--green-mid)', marginBottom:'1rem'}}>
-        Assign each player a group (A or B) and their <strong>raw handicap</strong> (an absolute number, e.g. 0, 8, 14). The app derives this round's strokes automatically.
+        Assign each player a group ({GROUP_LETTERS.join(', ')}) and their <strong>raw handicap</strong> (an absolute number, e.g. 0, 8, 14). The app derives this round's strokes automatically.
       </p>
 
       {isChampionship && cumulativePreR5 && (
         <div style={{padding:'0.6rem 0.85rem', background:'var(--cream)', borderLeft:'3px solid var(--gold)', borderRadius:'3px', marginBottom:'1rem', fontSize:'0.78rem', color:'var(--green-mid)', display:'flex', justifyContent:'space-between', alignItems:'center', gap:'0.5rem', flexWrap:'wrap'}}>
-          <span><strong style={{color:'var(--green-deep)'}}>Championship grouping:</strong> top 3 by R1-R4 standings → Group A, bottom 3 → Group B.</span>
+          <span><strong style={{color:'var(--green-deep)'}}>Championship grouping:</strong> by pre-championship standings, top {CHAMPIONSHIP_TIER_SIZE} → Group A, next {CHAMPIONSHIP_TIER_SIZE} → Group B{NUM_GROUPS > 2 ? ', then C…' : ''}.</span>
           <button type="button" className="btn ghost sm" onClick={autoAssignByLeaderboard}>Auto-assign by leaderboard</button>
         </div>
       )}
@@ -1157,8 +1203,7 @@ function RoundSetup({ supabase, roundId, round, strokes, holes, canEdit, cumulat
                 onChange={e => setLocalStrokes({...localStrokes, [p.id]: {...localStrokes[p.id], group: e.target.value}})}
               >
                 <option value="">Group</option>
-                <option value="A">A</option>
-                <option value="B">B</option>
+                {GROUP_LETTERS.map(g => <option key={g} value={g}>{g}</option>)}
               </select>
               <input
                 type="number" min="0" max="54" placeholder="Hcp"
@@ -1269,29 +1314,44 @@ function ScoringGrid({ supabase, roundId, formatKey, roundStatus, holes, strokes
     [strokes, isHolePointFormat]
   );
 
-  const groupA = Object.entries(strokes).filter(([_, s]) => s?.group_assignment === 'A').map(([id]) => id);
-  const groupB = Object.entries(strokes).filter(([_, s]) => s?.group_assignment === 'B').map(([id]) => id);
-  const teamMatch = isHolePointFormat && fieldStrokes
-    ? computeTeamBestBallMatch(groupA, groupB, sortedHoles, scores, fieldStrokes)
+  const groupLetters = detectGroupLetters(strokes);
+  const groupsMap = Object.fromEntries(
+    groupLetters.map(g => [g, Object.entries(strokes).filter(([_, s]) => s?.group_assignment === g).map(([id]) => id)])
+  );
+  // Live match-play banner only makes sense for exactly two groups (single
+  // head-to-head). For 3+ groups, individual_stroke runs a round-robin and a
+  // single banner can't summarise it — hide and let the per-group cards
+  // speak for themselves.
+  const teamMatch = isHolePointFormat && fieldStrokes && groupLetters.length === 2
+    ? computeTeamBestBallMatch(groupsMap[groupLetters[0]], groupsMap[groupLetters[1]], sortedHoles, scores, fieldStrokes)
     : null;
 
   const playersInGroup = (g) => {
     if (formatKey === 'scramble') {
-      const ids = g === 'A' ? groupA : groupB;
+      const ids = groupsMap[g] || [];
       return PLAYER_LIST.filter(p => p.id === ids[0]);
     }
     return PLAYER_LIST.filter(p => strokes[p.id]?.group_assignment === g);
   };
 
   const myGroup = strokes[user.id]?.group_assignment;
-  const otherGroup = myGroup === 'A' ? 'B' : (myGroup === 'B' ? 'A' : null);
-  const groupOrder = myGroup ? [myGroup, otherGroup].filter(Boolean) : ['A', 'B'].filter(g => playersInGroup(g).length);
+  // Render order: your group first, then the rest in alphabetical order.
+  // When the viewer isn't assigned to a group, fall back to alphabetical.
+  const groupOrder = myGroup
+    ? [myGroup, ...groupLetters.filter(g => g !== myGroup)]
+    : groupLetters.filter(g => playersInGroup(g).length);
 
   const canEditGroup = (g) => {
     if (isLocked) return false;
-    if (g === 'A') return iAmScorekeeperA;
-    if (g === 'B') return iAmScorekeeperB;
-    return false;
+    // With at most two groups, scorekeepers are tied to their group. With 3+
+    // groups, the DB still has only scorekeeper_a/_b columns, so either
+    // assigned scorekeeper can edit any group's scores.
+    if (groupLetters.length <= 2) {
+      if (g === 'A') return iAmScorekeeperA;
+      if (g === 'B') return iAmScorekeeperB;
+      return false;
+    }
+    return iAmScorekeeperA || iAmScorekeeperB;
   };
   const canEditAny = !isLocked && (iAmScorekeeperA || iAmScorekeeperB);
   const canEditAnyIfUnlocked = iAmScorekeeperA || iAmScorekeeperB;
@@ -1452,9 +1512,9 @@ function ScoringGrid({ supabase, roundId, formatKey, roundStatus, holes, strokes
         <div className="match-status team-match">
           <span className="lead">
             {teamMatch.aHolesUp > 0
-              ? <>Group <strong>A</strong> · {teamMatch.aHolesUp} UP thru {teamMatch.thruHole}</>
+              ? <>Group <strong>{groupLetters[0]}</strong> · {teamMatch.aHolesUp} UP thru {teamMatch.thruHole}</>
               : teamMatch.aHolesUp < 0
-                ? <>Group <strong>B</strong> · {-teamMatch.aHolesUp} UP thru {teamMatch.thruHole}</>
+                ? <>Group <strong>{groupLetters[1]}</strong> · {-teamMatch.aHolesUp} UP thru {teamMatch.thruHole}</>
                 : <>All Square thru {teamMatch.thruHole}</>}
           </span>
         </div>
@@ -1674,8 +1734,10 @@ function ScoringGrid({ supabase, roundId, formatKey, roundStatus, holes, strokes
 // ============== BEST BALL TEAM SCORECARD ==============
 function BestBallTeamCard({ holes, strokes, scores, user }) {
   const sortedHoles = [...holes].sort((a, b) => a.hole - b.hole);
-  const groupA = Object.entries(strokes).filter(([_, s]) => s?.group_assignment === 'A').map(([id]) => id);
-  const groupB = Object.entries(strokes).filter(([_, s]) => s?.group_assignment === 'B').map(([id]) => id);
+  const groupLetters = detectGroupLetters(strokes);
+  const groupsMap = Object.fromEntries(
+    groupLetters.map(g => [g, Object.entries(strokes).filter(([_, s]) => s?.group_assignment === g).map(([id]) => id)])
+  );
   const effectiveStrokes = useMemo(() => deriveStrokesForFormat(strokes, 'best_ball'), [strokes]);
 
   const teamHoleData = (group) => sortedHoles.map(hole => {
@@ -1738,11 +1800,10 @@ function BestBallTeamCard({ holes, strokes, scores, user }) {
     );
   };
 
-  // Order: your team first, then other team
-  const yourLabel = myGroup;
-  const otherLabel = myGroup === 'A' ? 'B' : (myGroup === 'B' ? 'A' : null);
-  const yourGroup = myGroup === 'A' ? groupA : (myGroup === 'B' ? groupB : []);
-  const otherGroup = myGroup === 'A' ? groupB : (myGroup === 'B' ? groupA : []);
+  // Render order: your team first, then the rest in alphabetical order.
+  const renderOrder = myGroup
+    ? [myGroup, ...groupLetters.filter(g => g !== myGroup)]
+    : groupLetters;
 
   return (
     <div className="card">
@@ -1752,17 +1813,7 @@ function BestBallTeamCard({ holes, strokes, scores, user }) {
           Best net · emoji = whose ball
         </span>
       </div>
-      {myGroup ? (
-        <>
-          {renderTeam(yourLabel, yourGroup)}
-          {renderTeam(otherLabel, otherGroup)}
-        </>
-      ) : (
-        <>
-          {renderTeam('A', groupA)}
-          {renderTeam('B', groupB)}
-        </>
-      )}
+      {renderOrder.map(g => renderTeam(g, groupsMap[g] || []))}
     </div>
   );
 }
